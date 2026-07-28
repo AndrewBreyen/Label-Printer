@@ -9,20 +9,18 @@ import {
 import { drawRulerTicks } from './rulerUtils';
 import './App.css';
 
-// Canvas width MUST equal REQUIRED_IMAGE_WIDTH (384px) — this is a
-// P50S firmware requirement documented in the package README, not
-// something we can size to the physical label. Height (print length)
-// is adjustable live below — our original 280px guess was based on
-// an assumed 203 DPI from a general web search, not verified against
-// this specific unit, and turned out to print too large physically.
+// Measured directly off the ruler test print: the physical label's
+// WIDTH is a box anchored to the TOP-RIGHT corner of the fixed 384px-
+// wide canvas (the extra space on the left is print-head width
+// beyond the label's physical edge, and never lands on paper).
+//
+// IMPORTANT: this printer's print head resolution (horizontal, dots
+// across the width) and its feed-motor resolution (vertical, the
+// height/print-length direction) turned out NOT to be the same
+// px-per-mm scale. Both are adjustable live below and calibrated
+// independently via the ruler test rather than assuming one DPI
+// value covers both.
 const LABEL_WIDTH = REQUIRED_IMAGE_WIDTH;
-
-// Measured directly off the ruler test print: the physical label is
-// a 350x350px box anchored to the TOP-RIGHT corner of the fixed
-// 384px-wide canvas (the extra ~34px on the left is print-head
-// width beyond the label's physical edge, and never lands on paper).
-const CONTENT_SIZE = 350;
-const CONTENT_LEFT = LABEL_WIDTH - CONTENT_SIZE; // 34
 
 function App() {
   const [title, setTitle] = useState('Hello World');
@@ -30,7 +28,9 @@ function App() {
   const [fontSize, setFontSize] = useState(28);
   const [xOffset, setXOffset] = useState(0); // fine nudge left/right within the measured 350x350 content box
   const [yOffset, setYOffset] = useState(0); // fine nudge up/down within the content box
-  const [labelHeight, setLabelHeight] = useState(CONTENT_SIZE); // print length in px, measured via ruler test
+  const [labelHeight, setLabelHeight] = useState(200); // print length in px — separate scale from width, re-measure via ruler test
+  const [contentWidth, setContentWidth] = useState(350); // content box width in px — anchored to the right edge, re-measure via ruler test
+  const CONTENT_LEFT = LABEL_WIDTH - contentWidth;
   const [connected, setConnected] = useState(false);
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
@@ -38,7 +38,7 @@ function App() {
   const canvasRef = useRef(null);
   const rulerCanvasRef = useRef(null);
   const [showRuler, setShowRuler] = useState(false);
-  const RULER_HEIGHT = CONTENT_SIZE; // matches the actual label footprint (35x35mm)
+  const RULER_HEIGHT = 300; // independent of width scale — taller than the suspected ~200 true value, so there's margin to read exactly where it cuts off
 
   // Redraw the label preview whenever the content changes.
   const drawLabel = useCallback(() => {
@@ -62,7 +62,7 @@ function App() {
     // prints as ink.
     ctx.save();
     ctx.translate(CONTENT_LEFT, 0);
-    drawRulerTicks(ctx, CONTENT_SIZE, Math.min(CONTENT_SIZE, canvas.height), {
+    drawRulerTicks(ctx, contentWidth, Math.min(contentWidth, canvas.height), {
       color: '#dddddd',
     });
     ctx.restore();
@@ -70,8 +70,8 @@ function App() {
 
     // Content is centered within the measured content box (top-right
     // anchored), then fine-nudged by xOffset/yOffset.
-    const centerX = CONTENT_LEFT + CONTENT_SIZE / 2 + xOffset;
-    const contentAreaWidth = CONTENT_SIZE - 20;
+    const centerX = CONTENT_LEFT + contentWidth / 2 + xOffset;
+    const contentAreaWidth = contentWidth - 20;
 
     ctx.font = `bold ${fontSize}px sans-serif`;
     // yOffset: positive value moves content UP (subtracted from y,
@@ -83,7 +83,7 @@ function App() {
       ctx.font = `${Math.round(fontSize * 0.55)}px sans-serif`;
       ctx.fillText(subtitle, centerX, titleY + fontSize, contentAreaWidth);
     }
-  }, [title, subtitle, fontSize, xOffset, yOffset, labelHeight]);
+  }, [title, subtitle, fontSize, xOffset, yOffset, labelHeight, contentWidth, CONTENT_LEFT]);
 
   useEffect(() => {
     drawLabel();
@@ -229,11 +229,22 @@ function App() {
         </label>
 
         <label className="field">
-          <span>Print length: {labelHeight}px (measured: {CONTENT_SIZE}px = 35mm)</span>
+          <span>Print width: {contentWidth}px (anchored to right edge — re-measure with the ruler test)</span>
           <input
             type="range"
-            min={250}
-            max={400}
+            min={50}
+            max={384}
+            value={contentWidth}
+            onChange={(e) => setContentWidth(Number(e.target.value))}
+          />
+        </label>
+
+        <label className="field">
+          <span>Print length: {labelHeight}px (separate scale from width — re-measure with the ruler test)</span>
+          <input
+            type="range"
+            min={50}
+            max={350}
             value={labelHeight}
             onChange={(e) => setLabelHeight(Number(e.target.value))}
           />
