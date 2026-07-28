@@ -157,9 +157,16 @@ async function sendPaced(bufferLike) {
   console.log('[printer] sending', bytes.length, 'bytes...');
 
   while (bytes.length > 0) {
+    let waited = 0;
     while (state.credit <= 0) {
       await new Promise((resolve) => setTimeout(resolve, 15));
+      waited += 15;
       if (!state) throw new Error('Printer disconnected mid-transfer.');
+      if (waited > 5000) {
+        throw new Error(
+          'Timed out waiting for printer credit — the connection may be in a stuck state. Try Disconnect, then Connect again.'
+        );
+      }
     }
 
     const size = Math.min(CHUNK_SIZE, bytes.length);

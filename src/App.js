@@ -6,26 +6,39 @@ import {
   isPrinterConnected,
   REQUIRED_IMAGE_WIDTH,
 } from './services/printerService';
+import { drawRulerTicks } from './rulerUtils';
 import './App.css';
 
 // Canvas width MUST equal REQUIRED_IMAGE_WIDTH (384px) — this is a
 // P50S firmware requirement documented in the package README, not
-// something we can size to the physical label. Height is flexible
-// and determines the print length; 280px ≈ 1.375in (1 3/8") at the
-// P50 family's 203 DPI. Content is drawn centered within the full
-// 384px width, so it'll appear centered on your narrower label.
+// something we can size to the physical label. Height (print length)
+// is adjustable live below — our original 280px guess was based on
+// an assumed 203 DPI from a general web search, not verified against
+// this specific unit, and turned out to print too large physically.
 const LABEL_WIDTH = REQUIRED_IMAGE_WIDTH;
-const LABEL_HEIGHT = 280;
+
+// Measured directly off the ruler test print: the physical label is
+// a 350x350px box anchored to the TOP-RIGHT corner of the fixed
+// 384px-wide canvas (the extra ~34px on the left is print-head
+// width beyond the label's physical edge, and never lands on paper).
+const CONTENT_SIZE = 350;
+const CONTENT_LEFT = LABEL_WIDTH - CONTENT_SIZE; // 34
 
 function App() {
   const [title, setTitle] = useState('Hello World');
   const [subtitle, setSubtitle] = useState('');
   const [fontSize, setFontSize] = useState(28);
+  const [xOffset, setXOffset] = useState(0); // fine nudge left/right within the measured 350x350 content box
+  const [yOffset, setYOffset] = useState(0); // fine nudge up/down within the content box
+  const [labelHeight, setLabelHeight] = useState(CONTENT_SIZE); // print length in px, measured via ruler test
   const [connected, setConnected] = useState(false);
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
 
   const canvasRef = useRef(null);
+  const rulerCanvasRef = useRef(null);
+  const [showRuler, setShowRuler] = useState(false);
+  const RULER_HEIGHT = CONTENT_SIZE; // matches the actual label footprint (35x35mm)
 
   // Redraw the label preview whenever the content changes.
   const drawLabel = useCallback(() => {
@@ -41,19 +54,55 @@ function App() {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
+    // Visual-only guide showing the measured 350x350 content box as
+    // a tick-ruler grid — matches the physical ruler test print, so
+    // it's easy to visually cross-check on screen. Drawn in a light
+    // gray (~#dddddd) that stays above the printer's black/white
+    // threshold (200), so it's visible here but never actually
+    // prints as ink.
+    ctx.save();
+    ctx.translate(CONTENT_LEFT, 0);
+    drawRulerTicks(ctx, CONTENT_SIZE, Math.min(CONTENT_SIZE, canvas.height), {
+      color: '#dddddd',
+    });
+    ctx.restore();
+    ctx.fillStyle = '#000000';
+
+    // Content is centered within the measured content box (top-right
+    // anchored), then fine-nudged by xOffset/yOffset.
+    const centerX = CONTENT_LEFT + CONTENT_SIZE / 2 + xOffset;
+    const contentAreaWidth = CONTENT_SIZE - 20;
+
     ctx.font = `bold ${fontSize}px sans-serif`;
-    const titleY = subtitle ? canvas.height / 2 - fontSize / 2 : canvas.height / 2;
-    ctx.fillText(title || ' ', canvas.width / 2, titleY, canvas.width - 20);
+    // yOffset: positive value moves content UP (subtracted from y,
+    // since canvas y grows downward).
+    const titleY = (subtitle ? canvas.height / 2 - fontSize / 2 : canvas.height / 2) - yOffset;
+    ctx.fillText(title || ' ', centerX, titleY, contentAreaWidth);
 
     if (subtitle) {
       ctx.font = `${Math.round(fontSize * 0.55)}px sans-serif`;
-      ctx.fillText(subtitle, canvas.width / 2, titleY + fontSize, canvas.width - 20);
+      ctx.fillText(subtitle, centerX, titleY + fontSize, contentAreaWidth);
     }
-  }, [title, subtitle, fontSize]);
+  }, [title, subtitle, fontSize, xOffset, yOffset, labelHeight]);
 
   useEffect(() => {
     drawLabel();
   }, [drawLabel]);
+
+  const drawRuler = useCallback(() => {
+    const ruler = rulerCanvasRef.current;
+    if (!ruler) return;
+    const ctx = ruler.getContext('2d');
+
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, ruler.width, RULER_HEIGHT);
+
+    drawRulerTicks(ctx, ruler.width, RULER_HEIGHT, { color: '#000000' });
+  }, []);
+
+  useEffect(() => {
+    if (showRuler) drawRuler();
+  }, [showRuler, drawRuler]);
 
   const handleConnect = async () => {
     setStatus('');
@@ -99,6 +148,26 @@ function App() {
     }
   };
 
+  const handlePrintRuler = async () => {
+    if (!isPrinterConnected()) {
+      setStatus('Connect the printer first.');
+      return;
+    }
+    setShowRuler(true);
+    // Wait a tick for the canvas to mount and drawRuler's effect to run.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    setBusy(true);
+    setStatus('Printing ruler...');
+    try {
+      await printLabel(rulerCanvasRef.current);
+      setStatus('Ruler printed — find the tick number at your label\'s physical edge.');
+    } catch (err) {
+      setStatus(`Ruler print failed: ${err.message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="app">
       <h1>Label Printer</h1>
@@ -136,16 +205,60 @@ function App() {
             onChange={(e) => setFontSize(Number(e.target.value))}
           />
         </label>
+
+        <label className="field">
+          <span>Horizontal position: {xOffset > 0 ? `+${xOffset}` : xOffset}px</span>
+          <input
+            type="range"
+            min={-100}
+            max={100}
+            value={xOffset}
+            onChange={(e) => setXOffset(Number(e.target.value))}
+          />
+        </label>
+
+        <label className="field">
+          <span>Vertical position: {yOffset > 0 ? `+${yOffset}` : yOffset}px (+ moves up)</span>
+          <input
+            type="range"
+            min={-100}
+            max={100}
+            value={yOffset}
+            onChange={(e) => setYOffset(Number(e.target.value))}
+          />
+        </label>
+
+        <label className="field">
+          <span>Print length: {labelHeight}px (measured: {CONTENT_SIZE}px = 35mm)</span>
+          <input
+            type="range"
+            min={250}
+            max={400}
+            value={labelHeight}
+            onChange={(e) => setLabelHeight(Number(e.target.value))}
+          />
+        </label>
       </div>
 
       <div className="preview">
         <canvas
           ref={canvasRef}
           width={LABEL_WIDTH}
-          height={LABEL_HEIGHT}
+          height={labelHeight}
           className="label-canvas"
         />
       </div>
+
+      {showRuler && (
+        <div className="preview">
+          <canvas
+            ref={rulerCanvasRef}
+            width={LABEL_WIDTH}
+            height={RULER_HEIGHT}
+            className="label-canvas"
+          />
+        </div>
+      )}
 
       <div className="actions">
         {!connected ? (
@@ -159,6 +272,9 @@ function App() {
         )}
         <button onClick={handlePrint} disabled={busy || !connected}>
           Print Label
+        </button>
+        <button onClick={handlePrintRuler} disabled={busy || !connected}>
+          Print Ruler Test
         </button>
       </div>
 

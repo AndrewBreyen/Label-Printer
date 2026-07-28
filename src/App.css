@@ -1,5 +1,10 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
 .app {
   max-width: 460px;
+  width: 100%;
   margin: 40px auto;
   padding: 24px;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -40,8 +45,9 @@ h1 {
 .preview {
   display: flex;
   justify-content: center;
-  margin-bottom: 20px;
-  padding: 16px;
+  width: fit-content;
+  margin: 0 auto 20px auto;
+  padding: 12px;
   background: #f4f4f4;
   border-radius: 12px;
 }
@@ -50,6 +56,15 @@ h1 {
   background: #fff;
   border: 1px solid #ccc;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  /* The canvas's real pixel size (width/height attributes, 384x280)
+     stays exactly what the printer needs — this only scales how big
+     it DISPLAYS on screen, otherwise it renders at full native size
+     and blows past the layout. Capped smaller here so the preview
+     box is compact instead of stretching wide. */
+  max-width: 240px;
+  width: 100%;
+  height: auto;
+  display: block;
 }
 
 .actions {
