@@ -7,87 +7,86 @@ import {
   REQUIRED_IMAGE_WIDTH,
 } from './services/printerService';
 import { drawRulerTicks } from './rulerUtils';
+import { LABEL_TEMPLATES, DEFAULT_TEMPLATE_NAME } from './labelTemplates';
 import './App.css';
 
-// Measured directly off the ruler test print: the physical label's
-// WIDTH is a box anchored to the TOP-RIGHT corner of the fixed 384px-
-// wide canvas (the extra space on the left is print-head width
-// beyond the label's physical edge, and never lands on paper).
-//
-// IMPORTANT: this printer's print head resolution (horizontal, dots
-// across the width) and its feed-motor resolution (vertical, the
-// height/print-length direction) turned out NOT to be the same
-// px-per-mm scale. Both are adjustable live below and calibrated
-// independently via the ruler test rather than assuming one DPI
-// value covers both.
+// Canvas width MUST equal REQUIRED_IMAGE_WIDTH (384px) — this is a
+// firmware requirement, not something that varies per label size.
 const LABEL_WIDTH = REQUIRED_IMAGE_WIDTH;
 
 function App() {
   const [title, setTitle] = useState('Hello World');
   const [subtitle, setSubtitle] = useState('');
   const [fontSize, setFontSize] = useState(28);
-  const [xOffset, setXOffset] = useState(0); // fine nudge left/right within the measured 350x350 content box
+  const [xOffset, setXOffset] = useState(0); // fine nudge left/right within the content box
   const [yOffset, setYOffset] = useState(0); // fine nudge up/down within the content box
-  const [labelHeight, setLabelHeight] = useState(200); // print length in px — separate scale from width, re-measure via ruler test
-  const [contentWidth, setContentWidth] = useState(350); // content box width in px — anchored to the right edge, re-measure via ruler test
-  const CONTENT_LEFT = LABEL_WIDTH - contentWidth;
+  const [templateName, setTemplateName] = useState(DEFAULT_TEMPLATE_NAME);
+  const template = LABEL_TEMPLATES[templateName];
+  const CONTENT_WIDTH = template.width;
+  const CONTENT_LEFT = LABEL_WIDTH - CONTENT_WIDTH;
+  const labelHeight = template.height;
   const [connected, setConnected] = useState(false);
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const canvasRef = useRef(null);
+  const canvasRef = useRef(null); // full 384px-wide canvas — hidden, this is what actually gets sent to the printer
+  const previewCanvasRef = useRef(null); // cropped 260x220 canvas — what's actually shown on screen
   const rulerCanvasRef = useRef(null);
   const [showRuler, setShowRuler] = useState(false);
-  const RULER_HEIGHT = 300; // independent of width scale — taller than the suspected ~200 true value, so there's margin to read exactly where it cuts off
 
-  // Redraw the label preview whenever the content changes.
+  // Draws the label text centered within a box of the given width,
+  // at the given horizontal offset — shared between the full/hidden
+  // print canvas and the cropped visible preview canvas so both stay
+  // perfectly in sync.
+  const renderContent = useCallback(
+    (ctx, boxWidth, boxHeight, centerXOverride) => {
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, boxWidth, boxHeight);
+
+      ctx.fillStyle = '#000000';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+
+      const centerX = centerXOverride + xOffset;
+      const contentAreaWidth = boxWidth - 20;
+
+      ctx.font = `bold ${fontSize}px sans-serif`;
+      // yOffset: positive value moves content UP (subtracted from y,
+      // since canvas y grows downward).
+      const titleY = (subtitle ? boxHeight / 2 - fontSize / 2 : boxHeight / 2) - yOffset;
+      ctx.fillText(title || ' ', centerX, titleY, contentAreaWidth);
+
+      if (subtitle) {
+        ctx.font = `${Math.round(fontSize * 0.55)}px sans-serif`;
+        ctx.fillText(subtitle, centerX, titleY + fontSize, contentAreaWidth);
+      }
+    },
+    [title, subtitle, fontSize, xOffset, yOffset]
+  );
+
+  // Full 384px-wide canvas — this is the real data sent to the
+  // printer, kept off-screen (see className="label-canvas--hidden").
   const drawLabel = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
+    renderContent(ctx, canvas.width, canvas.height, CONTENT_LEFT + CONTENT_WIDTH / 2);
+  }, [renderContent, CONTENT_LEFT, CONTENT_WIDTH]);
 
-    // White background (thermal printers print black on white).
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    ctx.fillStyle = '#000000';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-
-    // Visual-only guide showing the measured 350x350 content box as
-    // a tick-ruler grid — matches the physical ruler test print, so
-    // it's easy to visually cross-check on screen. Drawn in a light
-    // gray (~#dddddd) that stays above the printer's black/white
-    // threshold (200), so it's visible here but never actually
-    // prints as ink.
-    ctx.save();
-    ctx.translate(CONTENT_LEFT, 0);
-    drawRulerTicks(ctx, contentWidth, Math.min(contentWidth, canvas.height), {
-      color: '#dddddd',
-    });
-    ctx.restore();
-    ctx.fillStyle = '#000000';
-
-    // Content is centered within the measured content box (top-right
-    // anchored), then fine-nudged by xOffset/yOffset.
-    const centerX = CONTENT_LEFT + contentWidth / 2 + xOffset;
-    const contentAreaWidth = contentWidth - 20;
-
-    ctx.font = `bold ${fontSize}px sans-serif`;
-    // yOffset: positive value moves content UP (subtracted from y,
-    // since canvas y grows downward).
-    const titleY = (subtitle ? canvas.height / 2 - fontSize / 2 : canvas.height / 2) - yOffset;
-    ctx.fillText(title || ' ', centerX, titleY, contentAreaWidth);
-
-    if (subtitle) {
-      ctx.font = `${Math.round(fontSize * 0.55)}px sans-serif`;
-      ctx.fillText(subtitle, centerX, titleY + fontSize, contentAreaWidth);
-    }
-  }, [title, subtitle, fontSize, xOffset, yOffset, labelHeight, contentWidth, CONTENT_LEFT]);
+  // Cropped preview canvas — exactly CONTENT_WIDTH x labelHeight,
+  // what you actually see on screen. Local coordinates, so center is
+  // just its own midpoint (no CONTENT_LEFT offset needed here).
+  const drawPreview = useCallback(() => {
+    const canvas = previewCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    renderContent(ctx, canvas.width, canvas.height, canvas.width / 2);
+  }, [renderContent]);
 
   useEffect(() => {
     drawLabel();
-  }, [drawLabel]);
+    drawPreview();
+  }, [drawLabel, drawPreview, labelHeight]);
 
   const drawRuler = useCallback(() => {
     const ruler = rulerCanvasRef.current;
@@ -95,14 +94,14 @@ function App() {
     const ctx = ruler.getContext('2d');
 
     ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, ruler.width, RULER_HEIGHT);
+    ctx.fillRect(0, 0, ruler.width, labelHeight);
 
-    drawRulerTicks(ctx, ruler.width, RULER_HEIGHT, { color: '#000000' });
-  }, []);
+    drawRulerTicks(ctx, ruler.width, labelHeight, { color: '#000000' });
+  }, [labelHeight]);
 
   useEffect(() => {
     if (showRuler) drawRuler();
-  }, [showRuler, drawRuler]);
+  }, [showRuler, drawRuler, labelHeight]);
 
   const handleConnect = async () => {
     setStatus('');
@@ -229,43 +228,42 @@ function App() {
         </label>
 
         <label className="field">
-          <span>Print width: {contentWidth}px (anchored to right edge — re-measure with the ruler test)</span>
-          <input
-            type="range"
-            min={50}
-            max={384}
-            value={contentWidth}
-            onChange={(e) => setContentWidth(Number(e.target.value))}
-          />
+          <span>Label size</span>
+          <select value={templateName} onChange={(e) => setTemplateName(e.target.value)}>
+            {Object.keys(LABEL_TEMPLATES).map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
         </label>
 
-        <label className="field">
-          <span>Print length: {labelHeight}px (separate scale from width — re-measure with the ruler test)</span>
-          <input
-            type="range"
-            min={50}
-            max={350}
-            value={labelHeight}
-            onChange={(e) => setLabelHeight(Number(e.target.value))}
-          />
-        </label>
       </div>
 
       <div className="preview">
         <canvas
-          ref={canvasRef}
-          width={LABEL_WIDTH}
+          ref={previewCanvasRef}
+          width={CONTENT_WIDTH}
           height={labelHeight}
           className="label-canvas"
         />
       </div>
+
+      {/* Full 384px-wide canvas — not shown, but must stay mounted
+          since it's what actually gets sent to printLabel(). */}
+      <canvas
+        ref={canvasRef}
+        width={LABEL_WIDTH}
+        height={labelHeight}
+        style={{ display: 'none' }}
+      />
 
       {showRuler && (
         <div className="preview">
           <canvas
             ref={rulerCanvasRef}
             width={LABEL_WIDTH}
-            height={RULER_HEIGHT}
+            height={labelHeight}
             className="label-canvas"
           />
         </div>
