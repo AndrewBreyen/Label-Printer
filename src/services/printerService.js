@@ -157,9 +157,16 @@ async function sendPaced(bufferLike) {
   console.log('[printer] sending', bytes.length, 'bytes...');
 
   while (bytes.length > 0) {
+    let waited = 0;
     while (state.credit <= 0) {
       await new Promise((resolve) => setTimeout(resolve, 15));
+      waited += 15;
       if (!state) throw new Error('Printer disconnected mid-transfer.');
+      if (waited > 5000) {
+        throw new Error(
+          'Timed out waiting for printer credit — the connection may be in a stuck state. Try Disconnect, then Connect again.'
+        );
+      }
     }
 
     const size = Math.min(CHUNK_SIZE, bytes.length);
@@ -228,6 +235,32 @@ export async function printLabel(canvas, options = {}) {
 export async function sendRawCommand(bytes) {
   if (!state?.writeChar) throw new Error('Printer is not connected.');
   await state.writeChar.writeValueWithoutResponse(new Uint8Array(bytes));
+}
+
+/**
+ * Manual paper alignment — for when physical drift happens (paper
+ * reload, slip, etc.) rather than an automatic "learn the gap"
+ * routine. The reference implementation doesn't have an automatic
+ * calibration step at all (gap-sensing is handled by the printer's
+ * own hardware), so this instead exposes the two position commands
+ * we KNOW are real and working, since they're the exact commands
+ * already used inside printLabel()'s own payload:
+ *   - alignPaperStart(): snaps to the top of the current/next label.
+ *   - adjustPosition(mode, distanceMm): fine nudge forward/backward.
+ *
+ * @param {'forward'|'backward'} direction
+ * @param {number} distanceMm small nudge distance in mm (default 2)
+ */
+export async function nudgePaper(direction, distanceMm = 2) {
+  if (!state?.writeChar) throw new Error('Printer is not connected.');
+  const mode = direction === 'forward' ? 0x01 : 0x11; // mm units, per printer-commands.js docstring
+  await sendRawCommand(Array.from(toUint8Array(PrintPort.adjustPosition(mode, distanceMm))));
+}
+
+/** Snaps the paper back to the start of the current/next label. */
+export async function alignToLabelStart() {
+  if (!state?.writeChar) throw new Error('Printer is not connected.');
+  await sendRawCommand(Array.from(toUint8Array(PrintPort.alignPaperStart())));
 }
 
 if (typeof window !== 'undefined') {
