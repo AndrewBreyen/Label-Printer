@@ -24,7 +24,8 @@ function App() {
   const template = LABEL_TEMPLATES[templateName];
   const CONTENT_WIDTH = template.width;
   const CONTENT_LEFT = LABEL_WIDTH - CONTENT_WIDTH;
-  const labelHeight = template.height;
+  const contentHeight = template.contentHeight; // visible content box — what the cropped preview shows
+  const feedHeight = template.feedHeight; // full print job height — the real feed distance to the next label
   const [connected, setConnected] = useState(false);
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
@@ -38,6 +39,14 @@ function App() {
   // at the given horizontal offset — shared between the full/hidden
   // print canvas and the cropped visible preview canvas so both stay
   // perfectly in sync.
+  //
+  // boxHeight is the FULL canvas height (= the exact feed distance
+  // the printer advances — must stay whatever the template says).
+  // contentBoxHeight is a smaller, top-anchored region within that
+  // where text actually gets positioned — the remainder is just
+  // blank feed continuing on to the next label, same as it always
+  // was, just no longer forcing text to center within the whole
+  // thing.
   const renderContent = useCallback(
     (ctx, boxWidth, boxHeight, centerXOverride) => {
       ctx.fillStyle = '#ffffff';
@@ -49,11 +58,30 @@ function App() {
 
       const centerX = centerXOverride + xOffset;
       const contentAreaWidth = boxWidth - 20;
+      const contentBoxHeight = Math.min(contentHeight, boxHeight);
 
+      // Visual-only outline around the content box — light gray
+      // (~#dddddd) stays above the printer's black/white threshold
+      // (200), so it's visible here but never actually prints as ink.
+      // Skipped when the box already fills the whole canvas (the
+      // cropped preview), since the canvas's own border already
+      // shows that boundary.
+      if (contentBoxHeight < boxHeight) {
+        ctx.save();
+        ctx.strokeStyle = '#dddddd';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        ctx.strokeRect(0.5, 0.5, boxWidth - 1, contentBoxHeight - 1);
+        ctx.restore();
+      }
+
+      ctx.fillStyle = '#000000';
       ctx.font = `bold ${fontSize}px sans-serif`;
       // yOffset: positive value moves content UP (subtracted from y,
-      // since canvas y grows downward).
-      const titleY = (subtitle ? boxHeight / 2 - fontSize / 2 : boxHeight / 2) - yOffset;
+      // since canvas y grows downward). Centered within the smaller
+      // top-anchored content box, not the full feed height.
+      const titleY =
+        (subtitle ? contentBoxHeight / 2 - fontSize / 2 : contentBoxHeight / 2) - yOffset;
       ctx.fillText(title || ' ', centerX, titleY, contentAreaWidth);
 
       if (subtitle) {
@@ -61,7 +89,7 @@ function App() {
         ctx.fillText(subtitle, centerX, titleY + fontSize, contentAreaWidth);
       }
     },
-    [title, subtitle, fontSize, xOffset, yOffset]
+    [title, subtitle, fontSize, xOffset, yOffset, contentHeight]
   );
 
   // Full 384px-wide canvas — this is the real data sent to the
@@ -73,7 +101,7 @@ function App() {
     renderContent(ctx, canvas.width, canvas.height, CONTENT_LEFT + CONTENT_WIDTH / 2);
   }, [renderContent, CONTENT_LEFT, CONTENT_WIDTH]);
 
-  // Cropped preview canvas — exactly CONTENT_WIDTH x labelHeight,
+  // Cropped preview canvas — exactly CONTENT_WIDTH x contentHeight,
   // what you actually see on screen. Local coordinates, so center is
   // just its own midpoint (no CONTENT_LEFT offset needed here).
   const drawPreview = useCallback(() => {
@@ -86,7 +114,7 @@ function App() {
   useEffect(() => {
     drawLabel();
     drawPreview();
-  }, [drawLabel, drawPreview, labelHeight]);
+  }, [drawLabel, drawPreview, feedHeight, contentHeight]);
 
   const drawRuler = useCallback(() => {
     const ruler = rulerCanvasRef.current;
@@ -94,14 +122,14 @@ function App() {
     const ctx = ruler.getContext('2d');
 
     ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, ruler.width, labelHeight);
+    ctx.fillRect(0, 0, ruler.width, feedHeight);
 
-    drawRulerTicks(ctx, ruler.width, labelHeight, { color: '#000000' });
-  }, [labelHeight]);
+    drawRulerTicks(ctx, ruler.width, feedHeight, { color: '#000000' });
+  }, [feedHeight]);
 
   useEffect(() => {
     if (showRuler) drawRuler();
-  }, [showRuler, drawRuler, labelHeight]);
+  }, [showRuler, drawRuler, feedHeight]);
 
   const handleConnect = async () => {
     setStatus('');
@@ -244,17 +272,19 @@ function App() {
         <canvas
           ref={previewCanvasRef}
           width={CONTENT_WIDTH}
-          height={labelHeight}
+          height={contentHeight}
           className="label-canvas"
         />
       </div>
 
-      {/* Full 384px-wide canvas — not shown, but must stay mounted
-          since it's what actually gets sent to printLabel(). */}
+      {/* Full 384px-wide canvas at the full feed height — not shown,
+          but must stay mounted since it's what actually gets sent to
+          printLabel(). The extra height beyond contentHeight is
+          blank feed continuing on to the next label. */}
       <canvas
         ref={canvasRef}
         width={LABEL_WIDTH}
-        height={labelHeight}
+        height={feedHeight}
         style={{ display: 'none' }}
       />
 
@@ -263,7 +293,7 @@ function App() {
           <canvas
             ref={rulerCanvasRef}
             width={LABEL_WIDTH}
-            height={labelHeight}
+            height={feedHeight}
             className="label-canvas"
           />
         </div>

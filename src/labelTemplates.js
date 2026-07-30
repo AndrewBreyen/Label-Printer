@@ -16,7 +16,21 @@ export const LABEL_TEMPLATES = {
     // print head resolution (width) and feed-motor resolution
     // (height) turned out not to share the same px-per-mm scale.
     width: 260,
-    height: 238,
+    // contentHeight: the top-anchored box text is actually
+    // positioned/cropped within (what you see in the preview).
+    contentHeight: 205,
+    // feedHeight: the FULL print job height sent to the printer —
+    // must stay this size regardless of contentHeight, since it's
+    // the exact physical distance needed to reach the next label's
+    // boundary. The gap between contentHeight and feedHeight is
+    // just blank continued feed, not shown in the cropped preview.
+    feedHeight: 238,
+  },
+  'Big Labels': {
+    // 2 1/8" x 1 1/8" (54x28mm) labels on the P50S.
+    width: 600,
+    contentHeight: 600,
+    feedHeight: 325,
   },
 };
 

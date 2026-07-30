@@ -17,3 +17,8 @@ The app is currently set up to print labels of a specific size, but the size can
     - `npm install`
 3. Run `npm start` to start the app
 
+## Attributions
+
+This web app uses the following libraries:
+
+- [marklife-label-printer-web-kit](https://gitlab.com/marklife/marklife-label-printer-web-kit)

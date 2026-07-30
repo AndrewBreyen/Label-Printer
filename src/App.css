@@ -62,7 +62,7 @@ h1 {
 
 .label-canvas {
   background: #fff;
-  border: 1px solid #ccc;
+  border: 2px solid #888;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   /* The canvas's real pixel size (width/height attributes, 384x280)
      stays exactly what the printer needs — this only scales how big
