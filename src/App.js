@@ -8,6 +8,8 @@ import {
 } from './services/printerService';
 import { drawRulerTicks } from './rulerUtils';
 import { LABEL_TEMPLATES, DEFAULT_TEMPLATE_NAME } from './labelTemplates';
+import { useContentTemplates } from './contentTemplates';
+import { DATE_TEMPLATES } from './dateTemplates';
 import './App.css';
 
 // Canvas width MUST equal REQUIRED_IMAGE_WIDTH (384px) — this is a
@@ -29,6 +31,43 @@ function App() {
   const [connected, setConnected] = useState(false);
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
+
+  // Manual vs Templates mode, and the saved content presets used by
+  // Templates mode.
+  const [mode, setMode] = useState('manual'); // 'manual' | 'templates'
+  const { templates: contentTemplates, saveTemplate, deleteTemplate } = useContentTemplates();
+  const [selectedContentTemplate, setSelectedContentTemplate] = useState('');
+  const [newTemplateName, setNewTemplateName] = useState('');
+
+  const applyContentTemplate = (name) => {
+    const t = contentTemplates.find((tpl) => tpl.name === name);
+    if (!t) return;
+    setSelectedContentTemplate(name);
+    setTitle(t.title);
+    setSubtitle(t.subtitle);
+    setFontSize(t.fontSize);
+    setXOffset(t.xOffset);
+    setYOffset(t.yOffset);
+  };
+
+  const handleSaveTemplate = () => {
+    const name = newTemplateName.trim();
+    if (!name) return;
+    saveTemplate(name, { title, subtitle, fontSize, xOffset, yOffset });
+    setNewTemplateName('');
+    setStatus(`Saved template "${name}".`);
+  };
+
+  const [selectedDateTemplate, setSelectedDateTemplate] = useState('');
+
+  const applyDateTemplate = (name) => {
+    const t = DATE_TEMPLATES[name];
+    if (!t) return;
+    setSelectedDateTemplate(name);
+    const { title: newTitle, subtitle: newSubtitle } = t.generate();
+    setTitle(newTitle);
+    setSubtitle(newSubtitle);
+  };
 
   const canvasRef = useRef(null); // full 384px-wide canvas — hidden, this is what actually gets sent to the printer
   const previewCanvasRef = useRef(null); // cropped 260x220 canvas — what's actually shown on screen
@@ -166,6 +205,12 @@ function App() {
     setBusy(true);
     setStatus('Printing...');
     try {
+      if (selectedDateTemplate) {
+        applyDateTemplate(selectedDateTemplate);
+        // Wait a tick so the redraw effect runs with the fresh
+        // timestamp before we read the canvas for printing.
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
       await printLabel(canvasRef.current);
       setStatus('Label sent to printer.');
     } catch (err) {
@@ -201,59 +246,162 @@ function App() {
 
       <div className="panel">
         <label className="field">
-          <span>Line 1</span>
-          <input
-            type="text"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Main text"
-            maxLength={40}
-          />
+          <span>Mode</span>
+          <select value={mode} onChange={(e) => setMode(e.target.value)}>
+            <option value="manual">Manual</option>
+            <option value="templates">Templates</option>
+          </select>
         </label>
 
-        <label className="field">
-          <span>Line 2 (optional)</span>
-          <input
-            type="text"
-            value={subtitle}
-            onChange={(e) => setSubtitle(e.target.value)}
-            placeholder="Subtitle"
-            maxLength={60}
-          />
-        </label>
+        {mode === 'manual' && (
+          <>
+            <label className="field">
+              <span>Line 1</span>
+              <input
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Main text"
+                maxLength={40}
+              />
+            </label>
 
-        <label className="field">
-          <span>Font size: {fontSize}px</span>
-          <input
-            type="range"
-            min={14}
-            max={48}
-            value={fontSize}
-            onChange={(e) => setFontSize(Number(e.target.value))}
-          />
-        </label>
+            <label className="field">
+              <span>Line 2 (optional)</span>
+              <input
+                type="text"
+                value={subtitle}
+                onChange={(e) => setSubtitle(e.target.value)}
+                placeholder="Subtitle"
+                maxLength={60}
+              />
+            </label>
 
-        <label className="field">
-          <span>Horizontal position: {xOffset > 0 ? `+${xOffset}` : xOffset}px</span>
-          <input
-            type="range"
-            min={-100}
-            max={100}
-            value={xOffset}
-            onChange={(e) => setXOffset(Number(e.target.value))}
-          />
-        </label>
+            <label className="field">
+              <span>Font size: {fontSize}px</span>
+              <input
+                type="range"
+                min={14}
+                max={48}
+                value={fontSize}
+                onChange={(e) => setFontSize(Number(e.target.value))}
+              />
+            </label>
 
-        <label className="field">
-          <span>Vertical position: {yOffset > 0 ? `+${yOffset}` : yOffset}px (+ moves up)</span>
-          <input
-            type="range"
-            min={-100}
-            max={100}
-            value={yOffset}
-            onChange={(e) => setYOffset(Number(e.target.value))}
-          />
-        </label>
+            <label className="field">
+              <span>Horizontal position: {xOffset > 0 ? `+${xOffset}` : xOffset}px</span>
+              <input
+                type="range"
+                min={-100}
+                max={100}
+                value={xOffset}
+                onChange={(e) => setXOffset(Number(e.target.value))}
+              />
+            </label>
+
+            <label className="field">
+              <span>Vertical position: {yOffset > 0 ? `+${yOffset}` : yOffset}px (+ moves up)</span>
+              <input
+                type="range"
+                min={-100}
+                max={100}
+                value={yOffset}
+                onChange={(e) => setYOffset(Number(e.target.value))}
+              />
+            </label>
+
+            <label className="field">
+              <span>Save current as template</span>
+              <div className="save-template-row">
+                <input
+                  type="text"
+                  value={newTemplateName}
+                  onChange={(e) => setNewTemplateName(e.target.value)}
+                  placeholder="Template name"
+                  maxLength={40}
+                />
+                <button
+                  type="button"
+                  onClick={handleSaveTemplate}
+                  disabled={!newTemplateName.trim()}
+                >
+                  Save
+                </button>
+              </div>
+            </label>
+          </>
+        )}
+
+        {mode === 'templates' && (
+          <>
+            <label className="field">
+              <span>Date template</span>
+              <div className="save-template-row">
+                <select
+                  value={selectedDateTemplate}
+                  onChange={(e) => applyDateTemplate(e.target.value)}
+                >
+                  <option value="" disabled>
+                    Choose a date template...
+                  </option>
+                  {Object.keys(DATE_TEMPLATES).map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => applyDateTemplate(selectedDateTemplate)}
+                  disabled={!selectedDateTemplate}
+                >
+                  Refresh
+                </button>
+              </div>
+              <p className="hint">
+                Fills in the current date/time — hit Refresh right before printing so the
+                timestamp is accurate.
+              </p>
+            </label>
+
+            <label className="field">
+              <span>Content template</span>
+              {contentTemplates.length === 0 ? (
+                <p className="hint">
+                  No saved templates yet — switch to Manual, set up a label, and save it as a
+                  template.
+                </p>
+              ) : (
+                <div className="save-template-row">
+                  <select
+                    value={selectedContentTemplate}
+                    onChange={(e) => applyContentTemplate(e.target.value)}
+                  >
+                    <option value="" disabled>
+                      Choose a template...
+                    </option>
+                    {contentTemplates.map((t) => (
+                      <option key={t.name} value={t.name}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedContentTemplate && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        deleteTemplate(selectedContentTemplate);
+                        setSelectedContentTemplate('');
+                      }}
+                    >
+                      Delete
+                    </button>
+                  )}
+                </div>
+              )}
+            </label>
+          </>
+        )}
 
         <label className="field">
           <span>Label size</span>

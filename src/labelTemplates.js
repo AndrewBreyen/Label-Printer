@@ -15,7 +15,7 @@ export const LABEL_TEMPLATES = {
     // Width and height were calibrated SEPARATELY — this printer's
     // print head resolution (width) and feed-motor resolution
     // (height) turned out not to share the same px-per-mm scale.
-    width: 260,
+    width: 190,
     // contentHeight: the top-anchored box text is actually
     // positioned/cropped within (what you see in the preview).
     contentHeight: 205,
