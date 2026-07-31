@@ -9,7 +9,8 @@ import {
 import { drawRulerTicks } from './rulerUtils';
 import { LABEL_TEMPLATES, DEFAULT_TEMPLATE_NAME } from './labelTemplates';
 import { useContentTemplates } from './contentTemplates';
-import { DATE_TEMPLATES } from './dateTemplates';
+import { MARKDOWN_TEMPLATES } from './markdownTemplates';
+import { renderMarkdownContent } from './markdown';
 import './App.css';
 
 // Canvas width MUST equal REQUIRED_IMAGE_WIDTH (384px) — this is a
@@ -17,9 +18,8 @@ import './App.css';
 const LABEL_WIDTH = REQUIRED_IMAGE_WIDTH;
 
 function App() {
-  const [title, setTitle] = useState('Hello World');
-  const [subtitle, setSubtitle] = useState('');
-  const [fontSize, setFontSize] = useState(28);
+  const DEFAULT_MARKDOWN = '# Hello World';
+  const [markdownContent, setMarkdownContent] = useState(DEFAULT_MARKDOWN);
   const [xOffset, setXOffset] = useState(0); // fine nudge left/right within the content box
   const [yOffset, setYOffset] = useState(0); // fine nudge up/down within the content box
   const [templateName, setTemplateName] = useState(DEFAULT_TEMPLATE_NAME);
@@ -43,9 +43,7 @@ function App() {
     const t = contentTemplates.find((tpl) => tpl.name === name);
     if (!t) return;
     setSelectedContentTemplate(name);
-    setTitle(t.title);
-    setSubtitle(t.subtitle);
-    setFontSize(t.fontSize);
+    setMarkdownContent(t.markdown);
     setXOffset(t.xOffset);
     setYOffset(t.yOffset);
   };
@@ -53,20 +51,18 @@ function App() {
   const handleSaveTemplate = () => {
     const name = newTemplateName.trim();
     if (!name) return;
-    saveTemplate(name, { title, subtitle, fontSize, xOffset, yOffset });
+    saveTemplate(name, { markdown: markdownContent, xOffset, yOffset });
     setNewTemplateName('');
     setStatus(`Saved template "${name}".`);
   };
 
-  const [selectedDateTemplate, setSelectedDateTemplate] = useState('');
+  const [selectedCodeTemplate, setSelectedCodeTemplate] = useState('');
 
-  const applyDateTemplate = (name) => {
-    const t = DATE_TEMPLATES[name];
+  const applyCodeTemplate = (name) => {
+    const t = MARKDOWN_TEMPLATES[name];
     if (!t) return;
-    setSelectedDateTemplate(name);
-    const { title: newTitle, subtitle: newSubtitle } = t.generate();
-    setTitle(newTitle);
-    setSubtitle(newSubtitle);
+    setSelectedCodeTemplate(name);
+    setMarkdownContent(t.markdown);
   };
 
   const canvasRef = useRef(null); // full 384px-wide canvas — hidden, this is what actually gets sent to the printer
@@ -74,30 +70,31 @@ function App() {
   const rulerCanvasRef = useRef(null);
   const [showRuler, setShowRuler] = useState(false);
 
-  // Draws the label text centered within a box of the given width,
-  // at the given horizontal offset — shared between the full/hidden
-  // print canvas and the cropped visible preview canvas so both stay
-  // perfectly in sync.
+  // Draws the label content (parsed from markdown) into the content
+  // box, translated to sit at `contentLeft` within the given canvas
+  // — shared between the full/hidden print canvas and the cropped
+  // visible preview canvas. Both always render against the exact
+  // same CONTENT_WIDTH for text layout, just spatially translated,
+  // so the preview and the real print output can never diverge.
   //
   // boxHeight is the FULL canvas height (= the exact feed distance
   // the printer advances — must stay whatever the template says).
   // contentBoxHeight is a smaller, top-anchored region within that
   // where text actually gets positioned — the remainder is just
-  // blank feed continuing on to the next label, same as it always
-  // was, just no longer forcing text to center within the whole
-  // thing.
+  // blank feed continuing on to the next label.
   const renderContent = useCallback(
-    (ctx, boxWidth, boxHeight, centerXOverride) => {
+    (ctx, boxWidth, boxHeight, contentLeft) => {
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, boxWidth, boxHeight);
 
-      ctx.fillStyle = '#000000';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-
-      const centerX = centerXOverride + xOffset;
-      const contentAreaWidth = boxWidth - 20;
       const contentBoxHeight = Math.min(contentHeight, boxHeight);
+
+      ctx.save();
+      ctx.translate(contentLeft, 0);
+      renderMarkdownContent(ctx, markdownContent, CONTENT_WIDTH, contentBoxHeight, {
+        xOffset,
+        yOffset,
+      });
 
       // Visual-only outline around the content box — light gray
       // (~#dddddd) stays above the printer's black/white threshold
@@ -106,29 +103,14 @@ function App() {
       // cropped preview), since the canvas's own border already
       // shows that boundary.
       if (contentBoxHeight < boxHeight) {
-        ctx.save();
         ctx.strokeStyle = '#dddddd';
         ctx.lineWidth = 1;
         ctx.setLineDash([4, 4]);
-        ctx.strokeRect(0.5, 0.5, boxWidth - 1, contentBoxHeight - 1);
-        ctx.restore();
+        ctx.strokeRect(0.5, 0.5, CONTENT_WIDTH - 1, contentBoxHeight - 1);
       }
-
-      ctx.fillStyle = '#000000';
-      ctx.font = `bold ${fontSize}px sans-serif`;
-      // yOffset: positive value moves content UP (subtracted from y,
-      // since canvas y grows downward). Centered within the smaller
-      // top-anchored content box, not the full feed height.
-      const titleY =
-        (subtitle ? contentBoxHeight / 2 - fontSize / 2 : contentBoxHeight / 2) - yOffset;
-      ctx.fillText(title || ' ', centerX, titleY, contentAreaWidth);
-
-      if (subtitle) {
-        ctx.font = `${Math.round(fontSize * 0.55)}px sans-serif`;
-        ctx.fillText(subtitle, centerX, titleY + fontSize, contentAreaWidth);
-      }
+      ctx.restore();
     },
-    [title, subtitle, fontSize, xOffset, yOffset, contentHeight]
+    [markdownContent, xOffset, yOffset, contentHeight, CONTENT_WIDTH]
   );
 
   // Full 384px-wide canvas — this is the real data sent to the
@@ -137,17 +119,17 @@ function App() {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    renderContent(ctx, canvas.width, canvas.height, CONTENT_LEFT + CONTENT_WIDTH / 2);
-  }, [renderContent, CONTENT_LEFT, CONTENT_WIDTH]);
+    renderContent(ctx, canvas.width, canvas.height, CONTENT_LEFT);
+  }, [renderContent, CONTENT_LEFT]);
 
   // Cropped preview canvas — exactly CONTENT_WIDTH x contentHeight,
-  // what you actually see on screen. Local coordinates, so center is
-  // just its own midpoint (no CONTENT_LEFT offset needed here).
+  // what you actually see on screen. contentLeft is 0 since this
+  // canvas already IS the cropped content region.
   const drawPreview = useCallback(() => {
     const canvas = previewCanvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    renderContent(ctx, canvas.width, canvas.height, canvas.width / 2);
+    renderContent(ctx, canvas.width, canvas.height, 0);
   }, [renderContent]);
 
   useEffect(() => {
@@ -205,12 +187,10 @@ function App() {
     setBusy(true);
     setStatus('Printing...');
     try {
-      if (selectedDateTemplate) {
-        applyDateTemplate(selectedDateTemplate);
-        // Wait a tick so the redraw effect runs with the fresh
-        // timestamp before we read the canvas for printing.
-        await new Promise((resolve) => setTimeout(resolve, 50));
-      }
+      // Redraw synchronously right before printing so any {{now}} /
+      // {{now+Nd}} placeholders resolve to the actual print moment,
+      // not whenever the content was last edited/selected.
+      drawLabel();
       await printLabel(canvasRef.current);
       setStatus('Label sent to printer.');
     } catch (err) {
@@ -256,36 +236,19 @@ function App() {
         {mode === 'manual' && (
           <>
             <label className="field">
-              <span>Line 1</span>
-              <input
-                type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="Main text"
-                maxLength={40}
+              <span>Label content (markdown)</span>
+              <textarea
+                className="markdown-input"
+                value={markdownContent}
+                onChange={(e) => setMarkdownContent(e.target.value)}
+                placeholder={'# Big heading\n## Smaller heading\nBody text'}
+                rows={6}
               />
-            </label>
-
-            <label className="field">
-              <span>Line 2 (optional)</span>
-              <input
-                type="text"
-                value={subtitle}
-                onChange={(e) => setSubtitle(e.target.value)}
-                placeholder="Subtitle"
-                maxLength={60}
-              />
-            </label>
-
-            <label className="field">
-              <span>Font size: {fontSize}px</span>
-              <input
-                type="range"
-                min={14}
-                max={48}
-                value={fontSize}
-                onChange={(e) => setFontSize(Number(e.target.value))}
-              />
+              <p className="hint">
+                <code># text</code> = big heading, <code>## text</code> = smaller heading, plain
+                text = body, blank line = spacing. <code>{'{{now}}'}</code> and{' '}
+                <code>{'{{now+7d}}'}</code> insert live dates.
+              </p>
             </label>
 
             <label className="field">
@@ -335,37 +298,29 @@ function App() {
         {mode === 'templates' && (
           <>
             <label className="field">
-              <span>Date template</span>
-              <div className="save-template-row">
-                <select
-                  value={selectedDateTemplate}
-                  onChange={(e) => applyDateTemplate(e.target.value)}
-                >
-                  <option value="" disabled>
-                    Choose a date template...
+              <span>Code template</span>
+              <select
+                value={selectedCodeTemplate}
+                onChange={(e) => applyCodeTemplate(e.target.value)}
+              >
+                <option value="" disabled>
+                  Choose a code template...
+                </option>
+                {Object.keys(MARKDOWN_TEMPLATES).map((name) => (
+                  <option key={name} value={name}>
+                    {name}
                   </option>
-                  {Object.keys(DATE_TEMPLATES).map((name) => (
-                    <option key={name} value={name}>
-                      {name}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  onClick={() => applyDateTemplate(selectedDateTemplate)}
-                  disabled={!selectedDateTemplate}
-                >
-                  Refresh
-                </button>
-              </div>
+                ))}
+              </select>
               <p className="hint">
-                Fills in the current date/time — hit Refresh right before printing so the
-                timestamp is accurate.
+                Defined in code (markdownTemplates.js) — edit that file to add more. Any{' '}
+                <code>{'{{now}}'}</code> placeholders resolve fresh every time the label
+                redraws, including right before printing.
               </p>
             </label>
 
             <label className="field">
-              <span>Content template</span>
+              <span>Saved template</span>
               {contentTemplates.length === 0 ? (
                 <p className="hint">
                   No saved templates yet — switch to Manual, set up a label, and save it as a

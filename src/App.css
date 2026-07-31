@@ -46,6 +46,24 @@ h1 {
   background: #fff;
 }
 
+.markdown-input {
+  padding: 10px 12px;
+  border: 1px solid #d0d0d0;
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.hint code {
+  background: #f0f0f0;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+}
+
 .save-template-row {
   display: flex;
   gap: 8px;
