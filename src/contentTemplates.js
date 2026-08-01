@@ -3,11 +3,10 @@ import { useCallback, useEffect, useState } from 'react';
 const STORAGE_KEY = 'labelContentTemplates';
 
 /**
- * Manages named label CONTENT presets — markdown content plus x/y
- * position, bundled together so a whole label layout can be saved
- * and reselected later. This is distinct from labelTemplates.js,
- * which handles physical label SIZE (width/height in px); this is
- * about the text/layout you put on a label of a given size.
+ * Manages named label CONTENT presets — markdown content, saved and
+ * reselected later. This is distinct from labelTemplates.js, which
+ * handles physical label SIZE (width/height in px); this is about
+ * the text/layout you put on a label of a given size.
  *
  * Persisted to localStorage so saved presets survive a page reload.
  *

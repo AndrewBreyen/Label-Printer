@@ -14,6 +14,8 @@
  * Placeholders (resolved fresh every time it's rendered):
  *   {{now}}        -> current date/time, e.g. "7/29 2:30 PM"
  *   {{now+7d}}     -> date/time 7 days from now (any integer works)
+ *   {{nowtime}}    -> current time only, e.g. "2:30 PM" (useful when
+ *                     combining a fixed/picked date with a live time)
  *
  * Everything is centered horizontally per line and the whole block
  * of content is centered vertically as a group, then nudged by the
@@ -32,9 +34,14 @@ function formatDateTime(date) {
   return `${datePart} ${timePart}`;
 }
 
-/** Replaces {{now}} and {{now+Nd}} placeholders with formatted dates. */
+function formatTimeOnly(date) {
+  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+
+/** Replaces {{now}}, {{now+Nd}}, and {{nowtime}} placeholders with formatted dates/times. */
 export function resolvePlaceholders(text) {
   return text
+    .replace(/\{\{\s*nowtime\s*\}\}/g, () => formatTimeOnly(new Date()))
     .replace(/\{\{\s*now\s*\}\}/g, () => formatDateTime(new Date()))
     .replace(/\{\{\s*now\s*\+\s*(\d+)\s*d\s*\}\}/g, (_, days) => {
       const d = new Date();

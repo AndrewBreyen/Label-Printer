@@ -11,23 +11,17 @@
  */
 export const LABEL_TEMPLATES = {
   'Small Labels': {
-    // 1 3/8" x 1 3/8" (35x35mm) labels on the P50S.
-    // Width and height were calibrated SEPARATELY — this printer's
-    // print head resolution (width) and feed-motor resolution
-    // (height) turned out not to share the same px-per-mm scale.
-    width: 190,
-    // contentHeight: the top-anchored box text is actually
-    // positioned/cropped within (what you see in the preview).
-    contentHeight: 205,
-    // feedHeight: the FULL print job height sent to the printer —
-    // must stay this size regardless of contentHeight, since it's
-    // the exact physical distance needed to reach the next label's
-    // boundary. The gap between contentHeight and feedHeight is
-    // just blank continued feed, not shown in the cropped preview.
+    width: 240,
+    contentHeight: 220,
     feedHeight: 238,
   },
   'Big Labels': {
     // 2 1/8" x 1 1/8" (54x28mm) labels on the P50S.
+    // NOTE: contentHeight (600) is currently LARGER than feedHeight
+    // (325) — contentHeight is supposed to be a smaller box WITHIN
+    // feedHeight, not bigger than it. This will misbehave the same
+    // way Small Labels just did (or worse) if selected as-is. Worth
+    // re-running the ruler test for this stock and fixing before use.
     width: 600,
     contentHeight: 600,
     feedHeight: 325,

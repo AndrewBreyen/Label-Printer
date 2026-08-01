@@ -20,8 +20,6 @@ const LABEL_WIDTH = REQUIRED_IMAGE_WIDTH;
 function App() {
   const DEFAULT_MARKDOWN = '# Hello World';
   const [markdownContent, setMarkdownContent] = useState(DEFAULT_MARKDOWN);
-  const [xOffset, setXOffset] = useState(0); // fine nudge left/right within the content box
-  const [yOffset, setYOffset] = useState(0); // fine nudge up/down within the content box
   const [templateName, setTemplateName] = useState(DEFAULT_TEMPLATE_NAME);
   const template = LABEL_TEMPLATES[templateName];
   const CONTENT_WIDTH = template.width;
@@ -32,9 +30,9 @@ function App() {
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
 
-  // Manual vs Templates mode, and the saved content presets used by
-  // Templates mode.
-  const [mode, setMode] = useState('manual'); // 'manual' | 'templates'
+  // Manual vs Templates vs Prep Label mode, and the saved content
+  // presets used by Templates mode.
+  const [mode, setMode] = useState('manual'); // 'manual' | 'templates' | 'prep'
   const { templates: contentTemplates, saveTemplate, deleteTemplate } = useContentTemplates();
   const [selectedContentTemplate, setSelectedContentTemplate] = useState('');
   const [newTemplateName, setNewTemplateName] = useState('');
@@ -44,14 +42,12 @@ function App() {
     if (!t) return;
     setSelectedContentTemplate(name);
     setMarkdownContent(t.markdown);
-    setXOffset(t.xOffset);
-    setYOffset(t.yOffset);
   };
 
   const handleSaveTemplate = () => {
     const name = newTemplateName.trim();
     if (!name) return;
-    saveTemplate(name, { markdown: markdownContent, xOffset, yOffset });
+    saveTemplate(name, { markdown: markdownContent });
     setNewTemplateName('');
     setStatus(`Saved template "${name}".`);
   };
@@ -64,6 +60,30 @@ function App() {
     setSelectedCodeTemplate(name);
     setMarkdownContent(t.markdown);
   };
+
+  // Prep Label mode: item name + a date-only picker for "USE BY".
+  // PREP always shows the live current date/time ({{now}}); USE BY
+  // combines the picked date with the current time-of-day
+  // ({{nowtime}}) — the date is fixed by your selection, the time
+  // portion stays live just like PREP's does.
+  const todayISO = () => new Date().toISOString().slice(0, 10);
+  const [prepItemName, setPrepItemName] = useState('');
+  const [prepUseByDate, setPrepUseByDate] = useState(todayISO());
+
+  useEffect(() => {
+    if (mode !== 'prep') return;
+    // Parse as local time (not UTC) so the picked date doesn't shift
+    // a day depending on timezone.
+    const [y, m, d] = prepUseByDate.split('-').map(Number);
+    const useByLabel =
+      y && m && d
+        ? new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })
+        : '';
+    const name = prepItemName.trim() || 'Item';
+    setMarkdownContent(
+      `# ${name}\n\nPREP\n## {{now}}\n\nUSE BY\n## ${useByLabel} {{nowtime}}`
+    );
+  }, [mode, prepItemName, prepUseByDate]);
 
   const canvasRef = useRef(null); // full 384px-wide canvas — hidden, this is what actually gets sent to the printer
   const previewCanvasRef = useRef(null); // cropped 260x220 canvas — what's actually shown on screen
@@ -91,10 +111,7 @@ function App() {
 
       ctx.save();
       ctx.translate(contentLeft, 0);
-      renderMarkdownContent(ctx, markdownContent, CONTENT_WIDTH, contentBoxHeight, {
-        xOffset,
-        yOffset,
-      });
+      renderMarkdownContent(ctx, markdownContent, CONTENT_WIDTH, contentBoxHeight);
 
       // Visual-only outline around the content box — light gray
       // (~#dddddd) stays above the printer's black/white threshold
@@ -110,7 +127,7 @@ function App() {
       }
       ctx.restore();
     },
-    [markdownContent, xOffset, yOffset, contentHeight, CONTENT_WIDTH]
+    [markdownContent, contentHeight, CONTENT_WIDTH]
   );
 
   // Full 384px-wide canvas — this is the real data sent to the
@@ -230,6 +247,7 @@ function App() {
           <select value={mode} onChange={(e) => setMode(e.target.value)}>
             <option value="manual">Manual</option>
             <option value="templates">Templates</option>
+            <option value="prep">Prep Label</option>
           </select>
         </label>
 
@@ -249,28 +267,6 @@ function App() {
                 text = body, blank line = spacing. <code>{'{{now}}'}</code> and{' '}
                 <code>{'{{now+7d}}'}</code> insert live dates.
               </p>
-            </label>
-
-            <label className="field">
-              <span>Horizontal position: {xOffset > 0 ? `+${xOffset}` : xOffset}px</span>
-              <input
-                type="range"
-                min={-100}
-                max={100}
-                value={xOffset}
-                onChange={(e) => setXOffset(Number(e.target.value))}
-              />
-            </label>
-
-            <label className="field">
-              <span>Vertical position: {yOffset > 0 ? `+${yOffset}` : yOffset}px (+ moves up)</span>
-              <input
-                type="range"
-                min={-100}
-                max={100}
-                value={yOffset}
-                onChange={(e) => setYOffset(Number(e.target.value))}
-              />
             </label>
 
             <label className="field">
@@ -355,6 +351,36 @@ function App() {
                 </div>
               )}
             </label>
+          </>
+        )}
+
+        {mode === 'prep' && (
+          <>
+            <label className="field">
+              <span>Item name</span>
+              <input
+                type="text"
+                value={prepItemName}
+                onChange={(e) => setPrepItemName(e.target.value)}
+                placeholder="e.g. Egg"
+                maxLength={40}
+              />
+            </label>
+
+            <label className="field">
+              <span>Use by date</span>
+              <input
+                type="date"
+                value={prepUseByDate}
+                onChange={(e) => setPrepUseByDate(e.target.value)}
+              />
+            </label>
+
+            <p className="hint">
+              PREP shows the current date/time automatically. USE BY shows the date you pick
+              above, paired with the current time — both refresh to the live time right before
+              printing.
+            </p>
           </>
         )}
 

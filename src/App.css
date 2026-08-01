@@ -31,7 +31,8 @@ h1 {
   color: #444;
 }
 
-.field input[type="text"] {
+.field input[type="text"],
+.field input[type="date"] {
   padding: 10px 12px;
   border: 1px solid #d0d0d0;
   border-radius: 8px;
