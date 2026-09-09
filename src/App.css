@@ -32,19 +32,12 @@ h1 {
 }
 
 .field input[type="text"],
-.field input[type="date"] {
+.field input[type="date"],
+.field input[type="number"] {
   padding: 10px 12px;
   border: 1px solid #d0d0d0;
   border-radius: 8px;
   font-size: 15px;
-}
-
-.field select {
-  padding: 10px 12px;
-  border: 1px solid #d0d0d0;
-  border-radius: 8px;
-  font-size: 15px;
-  background: #fff;
 }
 
 .markdown-input {
@@ -65,44 +58,6 @@ h1 {
   font-family: "SF Mono", Menlo, Consolas, monospace;
 }
 
-.save-template-row {
-  display: flex;
-  gap: 8px;
-}
-
-.save-template-row input[type="text"] {
-  flex: 1;
-  padding: 10px 12px;
-  border: 1px solid #d0d0d0;
-  border-radius: 8px;
-  font-size: 15px;
-}
-
-.save-template-row select {
-  flex: 1;
-  padding: 10px 12px;
-  border: 1px solid #d0d0d0;
-  border-radius: 8px;
-  font-size: 15px;
-  background: #fff;
-}
-
-.save-template-row button {
-  padding: 10px 16px;
-  border: none;
-  border-radius: 8px;
-  background: #1a1a1a;
-  color: #fff;
-  font-size: 14px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.save-template-row button:disabled {
-  background: #aaa;
-  cursor: not-allowed;
-}
-
 .field input[type="range"] {
   width: 100%;
 }
@@ -121,11 +76,8 @@ h1 {
   background: #fff;
   border: 2px solid #888;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  /* The canvas's real pixel size (width/height attributes, 384x280)
-     stays exactly what the printer needs — this only scales how big
-     it DISPLAYS on screen, otherwise it renders at full native size
-     and blows past the layout. Capped smaller here so the preview
-     box is compact instead of stretching wide. */
+  /* The canvas's real pixel size stays exactly what the printer
+     needs — this only scales how big it DISPLAYS on screen. */
   max-width: 240px;
   width: 100%;
   height: auto;

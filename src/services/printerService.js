@@ -200,7 +200,7 @@ export async function printLabel(canvas, options = {}) {
     );
   }
 
-  const paperType = options.paperType ?? 0x20; // gap label, most common for die-cut stickers
+  const paperType = options.paperType ?? 0x10; // continuous roll — this app now targets 15mm continuous stock only
 
   const ctx = canvas.getContext('2d');
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);

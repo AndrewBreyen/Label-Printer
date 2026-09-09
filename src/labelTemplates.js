@@ -1,31 +1,37 @@
 /**
  * labelTemplates.js
  * -----------------
- * Named label-size presets. Each template holds the calibrated
- * content box width and print length (height) for a specific
- * physical label size, determined via the "Print Ruler Test" button
- * in the app and dialed in against real printed output.
+ * Config for the app's one supported label size: a 15mm-wide
+ * continuous roll. There's no gap sensor to calibrate against on
+ * continuous stock, so only the width is fixed — print length is
+ * chosen per-label in the app (see the "Label length" field).
  *
- * To add a new label size: print the ruler test, read off the real
- * width/height in px for that stock, and add an entry here.
+ * CONTENT_WIDTH and PX_PER_MM are ESTIMATES based on a common
+ * 203dpi thermal print head (203/25.4 ≈ 8px/mm). Verify against your
+ * actual printer using the "Print Ruler Test" button and adjust
+ * these two numbers if the printed label doesn't come out at 15mm.
  */
-export const LABEL_TEMPLATES = {
-  'Small Labels': {
-    width: 240,
-    contentHeight: 220,
-    feedHeight: 238,
-  },
-  'Big Labels': {
-    // 2 1/8" x 1 1/8" (54x28mm) labels on the P50S.
-    // NOTE: contentHeight (600) is currently LARGER than feedHeight
-    // (325) — contentHeight is supposed to be a smaller box WITHIN
-    // feedHeight, not bigger than it. This will misbehave the same
-    // way Small Labels just did (or worse) if selected as-is. Worth
-    // re-running the ruler test for this stock and fixing before use.
-    width: 600,
-    contentHeight: 600,
-    feedHeight: 325,
-  },
-};
+export const PX_PER_MM = 8; // 203dpi ≈ 8px/mm — recalibrate against a ruler test if needed
+export const CONTENT_WIDTH = Math.round(15 * PX_PER_MM); // ~120px for a 15mm-wide label
+export const DEFAULT_LENGTH_MM = 8; // starting label length shown in the UI, freely adjustable
+export const MIN_LENGTH_MM = 8; // shortest label the UI will let you set
 
-export const DEFAULT_TEMPLATE_NAME = 'Small Labels';
+/**
+ * PRINT_OFFSET_PX — shifts the content block within the printer's
+ * 384-dot line, to line it up with where the 15mm tape actually
+ * sits under the print head.
+ *
+ * Content was previously flush against the canvas's right edge
+ * (CONTENT_LEFT = LABEL_WIDTH - CONTENT_WIDTH), which is already the
+ * max possible value before the block runs off the canvas — so
+ * there was no room to shift it further in that direction. The
+ * ruler test showed the printed text clipped on its left edge (the
+ * leading letter of each line missing), meaning the tape's usable
+ * area sits a bit further over than that flush-right position
+ * assumed.
+ *
+ * This is a starting guess (~5mm worth of shift) — re-run the Print
+ * Ruler Test after this change and increase/decrease it until the
+ * full line, start to finish, lands cleanly on the tape.
+ */
+export const PRINT_OFFSET_PX = -10;
