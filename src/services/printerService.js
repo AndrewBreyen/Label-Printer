@@ -224,7 +224,6 @@ export async function printLabel(canvas, options = {}) {
   ]);
 
   await sendPaced(payload);
-
   console.log('[printer] print job complete.');
 }
 

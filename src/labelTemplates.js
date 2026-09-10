@@ -3,8 +3,8 @@
  * -----------------
  * Config for the app's one supported label size: a 15mm-wide
  * continuous roll. There's no gap sensor to calibrate against on
- * continuous stock, so only the width is fixed — print length is
- * chosen per-label in the app (see the "Label length" field).
+ * continuous stock, so only the width is fixed — print length is calculated
+ * from the content on each label.
  *
  * CONTENT_WIDTH and PX_PER_MM are ESTIMATES based on a common
  * 203dpi thermal print head (203/25.4 ≈ 8px/mm). Verify against your
@@ -13,8 +13,8 @@
  */
 export const PX_PER_MM = 8; // 203dpi ≈ 8px/mm — recalibrate against a ruler test if needed
 export const CONTENT_WIDTH = Math.round(15 * PX_PER_MM); // ~120px for a 15mm-wide label
-export const DEFAULT_LENGTH_MM = 8; // starting label length shown in the UI, freely adjustable
 export const MIN_LENGTH_MM = 8; // shortest label the UI will let you set
+export const POST_PRINT_FEED_MM = 2; // extra unprinted stock to advance after each label
 
 /**
  * PRINT_OFFSET_PX — shifts the content block within the printer's

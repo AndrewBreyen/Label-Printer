@@ -10,11 +10,15 @@ import { drawRulerTicks } from './rulerUtils';
 import {
   CONTENT_WIDTH,
   PX_PER_MM,
-  DEFAULT_LENGTH_MM,
   MIN_LENGTH_MM,
+  POST_PRINT_FEED_MM,
   PRINT_OFFSET_PX,
 } from './labelTemplates';
-import { renderMarkdownContent } from './markdown';
+import {
+  getMarkdownContentHeight,
+  getMarkdownContentWidth,
+  renderMarkdownContent,
+} from './markdown';
 import './App.css';
 
 // Canvas width MUST equal REQUIRED_IMAGE_WIDTH (384px) — this is a
@@ -28,14 +32,14 @@ const CONTENT_LEFT = Math.max(0, LABEL_WIDTH - CONTENT_WIDTH - PRINT_OFFSET_PX);
 
 function App() {
   const [markdownContent, setMarkdownContent] = useState('# Hello World');
-  const [lengthMm, setLengthMm] = useState(DEFAULT_LENGTH_MM);
-  const feedHeight = Math.max(
+  const [verticalText, setVerticalText] = useState(false);
+  const contentHeight = Math.max(
     MIN_LENGTH_MM * PX_PER_MM,
-    Math.round(lengthMm * PX_PER_MM)
+    verticalText
+      ? Math.ceil(getMarkdownContentWidth(markdownContent))
+      : getMarkdownContentHeight(markdownContent)
   );
-  // Continuous stock has no die-cut boundary, so the entire feed
-  // length is fair game for content (no separate crop box needed).
-  const contentHeight = feedHeight;
+  const feedHeight = contentHeight + Math.round(POST_PRINT_FEED_MM * PX_PER_MM);
 
   const [connected, setConnected] = useState(false);
   const [status, setStatus] = useState('');
@@ -52,10 +56,18 @@ function App() {
       ctx.fillRect(0, 0, boxWidth, boxHeight);
       ctx.save();
       ctx.translate(contentLeft, 0);
-      renderMarkdownContent(ctx, markdownContent, CONTENT_WIDTH, boxHeight);
+      if (verticalText) {
+        // Render the long label axis horizontally, then rotate it into place.
+        ctx.translate(CONTENT_WIDTH / 2, contentHeight / 2);
+        ctx.rotate(-Math.PI / 2);
+        ctx.translate(-contentHeight / 2, -CONTENT_WIDTH / 2);
+        renderMarkdownContent(ctx, markdownContent, contentHeight, CONTENT_WIDTH);
+      } else {
+        renderMarkdownContent(ctx, markdownContent, CONTENT_WIDTH, contentHeight);
+      }
       ctx.restore();
     },
-    [markdownContent]
+    [contentHeight, markdownContent, verticalText]
   );
 
   const drawLabel = useCallback(() => {
@@ -181,23 +193,22 @@ function App() {
           </p>
         </label>
 
+        <p className="hint">
+          Label length adjusts automatically to fit the content. The roll is 15mm wide; if output
+          does not measure 15mm wide, run "Print Ruler Test" and adjust CONTENT_WIDTH / PX_PER_MM
+          in labelTemplates.js.
+        </p>
+
         <label className="field">
-          <span>Label length (mm)</span>
-          <input
-            type="number"
-            min={MIN_LENGTH_MM}
-            max={200}
-            value={lengthMm}
-            onChange={(e) => {
-              const n = Number(e.target.value);
-              setLengthMm(Number.isFinite(n) && n > 0 ? Math.max(MIN_LENGTH_MM, n) : DEFAULT_LENGTH_MM);
-            }}
-          />
-          <p className="hint">
-            15mm continuous roll — width is fixed; length is how far the printer feeds for this
-            label. If output doesn't measure 15mm wide, run "Print Ruler Test" and adjust
-            CONTENT_WIDTH / PX_PER_MM in labelTemplates.js.
-          </p>
+          <span>Text orientation</span>
+          <span>
+            <input
+              type="checkbox"
+              checked={verticalText}
+              onChange={(e) => setVerticalText(e.target.checked)}
+            />{' '}
+            Rotate text 90° (type up and down)
+          </span>
         </label>
       </div>
 
