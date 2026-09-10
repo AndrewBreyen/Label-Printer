@@ -27,6 +27,20 @@ const FONT_SIZES = { h1: 32, h2: 22, body: 16 };
 const LINE_HEIGHT_RATIO = 1.3;
 const BLANK_LINE_GAP = 10;
 
+function getMarkdownBlocks(markdown) {
+  return parseMarkdownLines(markdown).map((line) => {
+    if (line.type === 'space') return { type: 'space', height: BLANK_LINE_GAP };
+    const fontSize = FONT_SIZES[line.type];
+    return {
+      type: line.type,
+      text: resolvePlaceholders(line.text),
+      fontSize,
+      bold: line.type !== 'body',
+      height: Math.round(fontSize * LINE_HEIGHT_RATIO),
+    };
+  });
+}
+
 function formatDateTime(date) {
   // Compact format that fits a small label: "7/29 2:30 PM"
   const datePart = date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' });
@@ -61,6 +75,26 @@ export function parseMarkdownLines(markdown) {
   });
 }
 
+/** Returns the vertical space required to render all markdown lines. */
+export function getMarkdownContentHeight(markdown) {
+  return getMarkdownBlocks(markdown).reduce((sum, block) => sum + block.height, 0);
+}
+
+/** Returns the horizontal space required by the widest rendered markdown line. */
+export function getMarkdownContentWidth(markdown) {
+  const measureCanvas = document.createElement('canvas');
+  const context = measureCanvas.getContext('2d');
+  if (!context) return 0;
+
+  const widestLine = getMarkdownBlocks(markdown).reduce((maxWidth, block) => {
+    if (block.type === 'space') return maxWidth;
+    context.font = `${block.bold ? 'bold ' : ''}${block.fontSize}px sans-serif`;
+    return Math.max(maxWidth, context.measureText(block.text).width);
+  }, 0);
+  // renderMarkdownContent reserves 10px on each side for its max-width.
+  return widestLine + 20;
+}
+
 /**
  * Renders markdown label content onto a canvas context, filling the
  * boxWidth x boxHeight area (white background + centered text).
@@ -75,18 +109,7 @@ export function renderMarkdownContent(ctx, markdown, boxWidth, boxHeight, option
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, boxWidth, boxHeight);
 
-  const lines = parseMarkdownLines(markdown);
-  const blocks = lines.map((line) => {
-    if (line.type === 'space') return { type: 'space', height: BLANK_LINE_GAP };
-    const fontSize = FONT_SIZES[line.type];
-    return {
-      type: line.type,
-      text: resolvePlaceholders(line.text),
-      fontSize,
-      bold: line.type !== 'body',
-      height: Math.round(fontSize * LINE_HEIGHT_RATIO),
-    };
-  });
+  const blocks = getMarkdownBlocks(markdown);
 
   const totalHeight = blocks.reduce((sum, b) => sum + b.height, 0);
   let y = (boxHeight - totalHeight) / 2 - yOffset;

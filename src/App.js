@@ -7,141 +7,76 @@ import {
   REQUIRED_IMAGE_WIDTH,
 } from './services/printerService';
 import { drawRulerTicks } from './rulerUtils';
-import { LABEL_TEMPLATES, DEFAULT_TEMPLATE_NAME } from './labelTemplates';
-import { useContentTemplates } from './contentTemplates';
-import { MARKDOWN_TEMPLATES } from './markdownTemplates';
-import { renderMarkdownContent } from './markdown';
+import {
+  CONTENT_WIDTH,
+  PX_PER_MM,
+  MIN_LENGTH_MM,
+  POST_PRINT_FEED_MM,
+  PRINT_OFFSET_PX,
+} from './labelTemplates';
+import {
+  getMarkdownContentHeight,
+  getMarkdownContentWidth,
+  renderMarkdownContent,
+} from './markdown';
 import './App.css';
 
 // Canvas width MUST equal REQUIRED_IMAGE_WIDTH (384px) — this is a
-// firmware requirement, not something that varies per label size.
+// firmware requirement of the printer itself, independent of the
+// physical label width (15mm here).
 const LABEL_WIDTH = REQUIRED_IMAGE_WIDTH;
+// Pulled left from the flush-right max by PRINT_OFFSET_PX so the
+// content lands on the tape instead of clipping past its edge —
+// see the comment on PRINT_OFFSET_PX in labelTemplates.js.
+const CONTENT_LEFT = Math.max(0, LABEL_WIDTH - CONTENT_WIDTH - PRINT_OFFSET_PX);
 
 function App() {
-  const DEFAULT_MARKDOWN = '# Hello World';
-  const [markdownContent, setMarkdownContent] = useState(DEFAULT_MARKDOWN);
-  const [templateName, setTemplateName] = useState(DEFAULT_TEMPLATE_NAME);
-  const template = LABEL_TEMPLATES[templateName];
-  const CONTENT_WIDTH = template.width;
-  const CONTENT_LEFT = LABEL_WIDTH - CONTENT_WIDTH;
-  const contentHeight = template.contentHeight; // visible content box — what the cropped preview shows
-  const feedHeight = template.feedHeight; // full print job height — the real feed distance to the next label
+  const [markdownContent, setMarkdownContent] = useState('# Hello World');
+  const [verticalText, setVerticalText] = useState(false);
+  const contentHeight = Math.max(
+    MIN_LENGTH_MM * PX_PER_MM,
+    verticalText
+      ? Math.ceil(getMarkdownContentWidth(markdownContent))
+      : getMarkdownContentHeight(markdownContent)
+  );
+  const feedHeight = contentHeight + Math.round(POST_PRINT_FEED_MM * PX_PER_MM);
+
   const [connected, setConnected] = useState(false);
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
 
-  // Manual vs Templates vs Prep Label mode, and the saved content
-  // presets used by Templates mode.
-  const [mode, setMode] = useState('manual'); // 'manual' | 'templates' | 'prep'
-  const { templates: contentTemplates, saveTemplate, deleteTemplate } = useContentTemplates();
-  const [selectedContentTemplate, setSelectedContentTemplate] = useState('');
-  const [newTemplateName, setNewTemplateName] = useState('');
-
-  const applyContentTemplate = (name) => {
-    const t = contentTemplates.find((tpl) => tpl.name === name);
-    if (!t) return;
-    setSelectedContentTemplate(name);
-    setMarkdownContent(t.markdown);
-  };
-
-  const handleSaveTemplate = () => {
-    const name = newTemplateName.trim();
-    if (!name) return;
-    saveTemplate(name, { markdown: markdownContent });
-    setNewTemplateName('');
-    setStatus(`Saved template "${name}".`);
-  };
-
-  const [selectedCodeTemplate, setSelectedCodeTemplate] = useState('');
-
-  const applyCodeTemplate = (name) => {
-    const t = MARKDOWN_TEMPLATES[name];
-    if (!t) return;
-    setSelectedCodeTemplate(name);
-    setMarkdownContent(t.markdown);
-  };
-
-  // Prep Label mode: item name + a date-only picker for "USE BY".
-  // PREP always shows the live current date/time ({{now}}); USE BY
-  // combines the picked date with the current time-of-day
-  // ({{nowtime}}) — the date is fixed by your selection, the time
-  // portion stays live just like PREP's does.
-  const todayISO = () => new Date().toISOString().slice(0, 10);
-  const [prepItemName, setPrepItemName] = useState('');
-  const [prepUseByDate, setPrepUseByDate] = useState(todayISO());
-
-  useEffect(() => {
-    if (mode !== 'prep') return;
-    // Parse as local time (not UTC) so the picked date doesn't shift
-    // a day depending on timezone.
-    const [y, m, d] = prepUseByDate.split('-').map(Number);
-    const useByLabel =
-      y && m && d
-        ? new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })
-        : '';
-    const name = prepItemName.trim() || 'Item';
-    setMarkdownContent(
-      `# ${name}\n\nPREP\n## {{now}}\n\nUSE BY\n## ${useByLabel} {{nowtime}}`
-    );
-  }, [mode, prepItemName, prepUseByDate]);
-
-  const canvasRef = useRef(null); // full 384px-wide canvas — hidden, this is what actually gets sent to the printer
-  const previewCanvasRef = useRef(null); // cropped 260x220 canvas — what's actually shown on screen
+  const canvasRef = useRef(null); // full 384px-wide canvas — hidden, sent to the printer
+  const previewCanvasRef = useRef(null); // cropped-to-content canvas shown on screen
   const rulerCanvasRef = useRef(null);
   const [showRuler, setShowRuler] = useState(false);
 
-  // Draws the label content (parsed from markdown) into the content
-  // box, translated to sit at `contentLeft` within the given canvas
-  // — shared between the full/hidden print canvas and the cropped
-  // visible preview canvas. Both always render against the exact
-  // same CONTENT_WIDTH for text layout, just spatially translated,
-  // so the preview and the real print output can never diverge.
-  //
-  // boxHeight is the FULL canvas height (= the exact feed distance
-  // the printer advances — must stay whatever the template says).
-  // contentBoxHeight is a smaller, top-anchored region within that
-  // where text actually gets positioned — the remainder is just
-  // blank feed continuing on to the next label.
   const renderContent = useCallback(
     (ctx, boxWidth, boxHeight, contentLeft) => {
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, boxWidth, boxHeight);
-
-      const contentBoxHeight = Math.min(contentHeight, boxHeight);
-
       ctx.save();
       ctx.translate(contentLeft, 0);
-      renderMarkdownContent(ctx, markdownContent, CONTENT_WIDTH, contentBoxHeight);
-
-      // Visual-only outline around the content box — light gray
-      // (~#dddddd) stays above the printer's black/white threshold
-      // (200), so it's visible here but never actually prints as ink.
-      // Skipped when the box already fills the whole canvas (the
-      // cropped preview), since the canvas's own border already
-      // shows that boundary.
-      if (contentBoxHeight < boxHeight) {
-        ctx.strokeStyle = '#dddddd';
-        ctx.lineWidth = 1;
-        ctx.setLineDash([4, 4]);
-        ctx.strokeRect(0.5, 0.5, CONTENT_WIDTH - 1, contentBoxHeight - 1);
+      if (verticalText) {
+        // Render the long label axis horizontally, then rotate it into place.
+        ctx.translate(CONTENT_WIDTH / 2, contentHeight / 2);
+        ctx.rotate(-Math.PI / 2);
+        ctx.translate(-contentHeight / 2, -CONTENT_WIDTH / 2);
+        renderMarkdownContent(ctx, markdownContent, contentHeight, CONTENT_WIDTH);
+      } else {
+        renderMarkdownContent(ctx, markdownContent, CONTENT_WIDTH, contentHeight);
       }
       ctx.restore();
     },
-    [markdownContent, contentHeight, CONTENT_WIDTH]
+    [contentHeight, markdownContent, verticalText]
   );
 
-  // Full 384px-wide canvas — this is the real data sent to the
-  // printer, kept off-screen (see className="label-canvas--hidden").
   const drawLabel = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     renderContent(ctx, canvas.width, canvas.height, CONTENT_LEFT);
-  }, [renderContent, CONTENT_LEFT]);
+  }, [renderContent]);
 
-  // Cropped preview canvas — exactly CONTENT_WIDTH x contentHeight,
-  // what you actually see on screen. contentLeft is 0 since this
-  // canvas already IS the cropped content region.
   const drawPreview = useCallback(() => {
     const canvas = previewCanvasRef.current;
     if (!canvas) return;
@@ -152,16 +87,14 @@ function App() {
   useEffect(() => {
     drawLabel();
     drawPreview();
-  }, [drawLabel, drawPreview, feedHeight, contentHeight]);
+  }, [drawLabel, drawPreview, feedHeight]);
 
   const drawRuler = useCallback(() => {
     const ruler = rulerCanvasRef.current;
     if (!ruler) return;
     const ctx = ruler.getContext('2d');
-
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, ruler.width, feedHeight);
-
     drawRulerTicks(ctx, ruler.width, feedHeight, { color: '#000000' });
   }, [feedHeight]);
 
@@ -206,9 +139,11 @@ function App() {
     try {
       // Redraw synchronously right before printing so any {{now}} /
       // {{now+Nd}} placeholders resolve to the actual print moment,
-      // not whenever the content was last edited/selected.
+      // not whenever the content was last edited.
       drawLabel();
-      await printLabel(canvasRef.current);
+      // Continuous roll — no gap sensor to align against, so use the
+      // continuous paper type rather than a gap-label default.
+      await printLabel(canvasRef.current, { paperType: 0x10 });
       setStatus('Label sent to printer.');
     } catch (err) {
       setStatus(`Print failed: ${err.message}`);
@@ -228,8 +163,8 @@ function App() {
     setBusy(true);
     setStatus('Printing ruler...');
     try {
-      await printLabel(rulerCanvasRef.current);
-      setStatus('Ruler printed — find the tick number at your label\'s physical edge.');
+      await printLabel(rulerCanvasRef.current, { paperType: 0x10 });
+      setStatus("Ruler printed — find the tick number at your label's physical edge.");
     } catch (err) {
       setStatus(`Ruler print failed: ${err.message}`);
     } finally {
@@ -243,158 +178,38 @@ function App() {
 
       <div className="panel">
         <label className="field">
-          <span>Mode</span>
-          <select value={mode} onChange={(e) => setMode(e.target.value)}>
-            <option value="manual">Manual</option>
-            <option value="templates">Templates</option>
-            <option value="prep">Prep Label</option>
-          </select>
+          <span>Label content (markdown)</span>
+          <textarea
+            className="markdown-input"
+            value={markdownContent}
+            onChange={(e) => setMarkdownContent(e.target.value)}
+            placeholder={'# Big heading\n## Smaller heading\nBody text'}
+            rows={6}
+          />
+          <p className="hint">
+            <code># text</code> = big heading, <code>## text</code> = smaller heading, plain
+            text = body, blank line = spacing. <code>{'{{now}}'}</code> and{' '}
+            <code>{'{{now+7d}}'}</code> insert live dates.
+          </p>
         </label>
 
-        {mode === 'manual' && (
-          <>
-            <label className="field">
-              <span>Label content (markdown)</span>
-              <textarea
-                className="markdown-input"
-                value={markdownContent}
-                onChange={(e) => setMarkdownContent(e.target.value)}
-                placeholder={'# Big heading\n## Smaller heading\nBody text'}
-                rows={6}
-              />
-              <p className="hint">
-                <code># text</code> = big heading, <code>## text</code> = smaller heading, plain
-                text = body, blank line = spacing. <code>{'{{now}}'}</code> and{' '}
-                <code>{'{{now+7d}}'}</code> insert live dates.
-              </p>
-            </label>
-
-            <label className="field">
-              <span>Save current as template</span>
-              <div className="save-template-row">
-                <input
-                  type="text"
-                  value={newTemplateName}
-                  onChange={(e) => setNewTemplateName(e.target.value)}
-                  placeholder="Template name"
-                  maxLength={40}
-                />
-                <button
-                  type="button"
-                  onClick={handleSaveTemplate}
-                  disabled={!newTemplateName.trim()}
-                >
-                  Save
-                </button>
-              </div>
-            </label>
-          </>
-        )}
-
-        {mode === 'templates' && (
-          <>
-            <label className="field">
-              <span>Code template</span>
-              <select
-                value={selectedCodeTemplate}
-                onChange={(e) => applyCodeTemplate(e.target.value)}
-              >
-                <option value="" disabled>
-                  Choose a code template...
-                </option>
-                {Object.keys(MARKDOWN_TEMPLATES).map((name) => (
-                  <option key={name} value={name}>
-                    {name}
-                  </option>
-                ))}
-              </select>
-              <p className="hint">
-                Defined in code (markdownTemplates.js) — edit that file to add more. Any{' '}
-                <code>{'{{now}}'}</code> placeholders resolve fresh every time the label
-                redraws, including right before printing.
-              </p>
-            </label>
-
-            <label className="field">
-              <span>Saved template</span>
-              {contentTemplates.length === 0 ? (
-                <p className="hint">
-                  No saved templates yet — switch to Manual, set up a label, and save it as a
-                  template.
-                </p>
-              ) : (
-                <div className="save-template-row">
-                  <select
-                    value={selectedContentTemplate}
-                    onChange={(e) => applyContentTemplate(e.target.value)}
-                  >
-                    <option value="" disabled>
-                      Choose a template...
-                    </option>
-                    {contentTemplates.map((t) => (
-                      <option key={t.name} value={t.name}>
-                        {t.name}
-                      </option>
-                    ))}
-                  </select>
-                  {selectedContentTemplate && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        deleteTemplate(selectedContentTemplate);
-                        setSelectedContentTemplate('');
-                      }}
-                    >
-                      Delete
-                    </button>
-                  )}
-                </div>
-              )}
-            </label>
-          </>
-        )}
-
-        {mode === 'prep' && (
-          <>
-            <label className="field">
-              <span>Item name</span>
-              <input
-                type="text"
-                value={prepItemName}
-                onChange={(e) => setPrepItemName(e.target.value)}
-                placeholder="e.g. Egg"
-                maxLength={40}
-              />
-            </label>
-
-            <label className="field">
-              <span>Use by date</span>
-              <input
-                type="date"
-                value={prepUseByDate}
-                onChange={(e) => setPrepUseByDate(e.target.value)}
-              />
-            </label>
-
-            <p className="hint">
-              PREP shows the current date/time automatically. USE BY shows the date you pick
-              above, paired with the current time — both refresh to the live time right before
-              printing.
-            </p>
-          </>
-        )}
+        <p className="hint">
+          Label length adjusts automatically to fit the content. The roll is 15mm wide; if output
+          does not measure 15mm wide, run "Print Ruler Test" and adjust CONTENT_WIDTH / PX_PER_MM
+          in labelTemplates.js.
+        </p>
 
         <label className="field">
-          <span>Label size</span>
-          <select value={templateName} onChange={(e) => setTemplateName(e.target.value)}>
-            {Object.keys(LABEL_TEMPLATES).map((name) => (
-              <option key={name} value={name}>
-                {name}
-              </option>
-            ))}
-          </select>
+          <span>Text orientation</span>
+          <span>
+            <input
+              type="checkbox"
+              checked={verticalText}
+              onChange={(e) => setVerticalText(e.target.checked)}
+            />{' '}
+            Rotate text 90° (type up and down)
+          </span>
         </label>
-
       </div>
 
       <div className="preview">
@@ -406,10 +221,8 @@ function App() {
         />
       </div>
 
-      {/* Full 384px-wide canvas at the full feed height — not shown,
-          but must stay mounted since it's what actually gets sent to
-          printLabel(). The extra height beyond contentHeight is
-          blank feed continuing on to the next label. */}
+      {/* Full 384px-wide canvas — hidden, but must stay mounted since
+          it's what actually gets sent to printLabel(). */}
       <canvas
         ref={canvasRef}
         width={LABEL_WIDTH}
@@ -449,8 +262,8 @@ function App() {
       {status && <p className="status">{status}</p>}
 
       <p className="hint">
-        Requires Chrome or Edge over HTTPS (or localhost) — Web Bluetooth
-        isn't supported in Safari or Firefox.
+        Requires Chrome or Edge over HTTPS (or localhost) — Web Bluetooth isn't supported in
+        Safari or Firefox.
       </p>
     </div>
   );
