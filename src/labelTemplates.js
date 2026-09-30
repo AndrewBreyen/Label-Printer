@@ -35,3 +35,20 @@ export const POST_PRINT_FEED_MM = 2; // extra unprinted stock to advance after e
  * full line, start to finish, lands cleanly on the tape.
  */
 export const PRINT_OFFSET_PX = -10;
+
+// Named physical-label presets used by the label-size selector in App.js.
+// Continuous barcode mode sizes its canvases independently.
+export const LABEL_TEMPLATES = {
+  'Small Labels': {
+    width: 240,
+    contentHeight: 220,
+    feedHeight: 238,
+  },
+  'Big Labels': {
+    width: 600,
+    contentHeight: 600,
+    feedHeight: 325,
+  },
+};
+
+export const DEFAULT_TEMPLATE_NAME = 'Small Labels';

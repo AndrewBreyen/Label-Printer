@@ -42,6 +42,7 @@ const NOTIFY_CHAR_UUID_B = '0000ff01-0000-1000-8000-00805f9b34fb';
 
 const CHUNK_SIZE = 90; // README: "Automatically splits data into optimal chunks (90 bytes)"
 export const REQUIRED_IMAGE_WIDTH = 384; // README: "P50S Specifics: enforces a 384px width"
+const PRINT_SPEED = 0; // SDK: 0 = low, 1 = medium, 2 = high
 
 let state = null; // { device, server, writeChar, credit }
 
@@ -211,6 +212,12 @@ export async function printLabel(canvas, options = {}) {
     width: canvas.width,
     height: canvas.height,
   });
+
+  // Configuration commands must be sent outside the print-job payload.
+  // Sending setSpeed alongside startPrintjob causes some firmware versions
+  // to ignore the setting and retain the previous speed.
+  await sendPaced(PrintPort.setSpeed(PRINT_SPEED));
+  await new Promise((resolve) => setTimeout(resolve, 100));
 
   // README "Method 2: Advanced Usage" — one concatenated payload,
   // sent as a single paced/chunked stream.

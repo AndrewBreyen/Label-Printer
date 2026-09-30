@@ -17,6 +17,16 @@ The app is currently set up to print labels of a specific size, but the size can
     - `npm install`
 3. Run `npm start` to start the app
 
+Alternatively, run `./launch.sh` to install/update the dependencies and start the app. Pass `--quick` to skip dependency installation and start immediately:
+
+```sh
+./launch.sh
+./launch.sh --quick
+```
+
+The **Rotated Text (15mm Continuous)** mode uses the same markdown formatting as Manual mode,
+rotated 90° along the tape. Its print length is calculated from the widest rendered text line.
+
 ## Attributions
 
 This web app uses the following libraries:
