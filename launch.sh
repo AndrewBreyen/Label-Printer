@@ -24,4 +24,5 @@ if [[ "${1:-}" != "--quick" ]]; then
   npm install --no-audit --no-fund
 fi
 
-exec npm start
+(sleep 3; open -a "Google Chrome" http://localhost:3000) &
+BROWSER=none npm start 2>&1 | tee

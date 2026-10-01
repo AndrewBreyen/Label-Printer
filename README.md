@@ -17,7 +17,7 @@ The app is currently set up to print labels of a specific size, but the size can
     - `npm install`
 3. Run `npm start` to start the app
 
-Alternatively, run `./launch.sh` to install/update the dependencies and start the app. Pass `--quick` to skip dependency installation and start immediately:
+Alternatively, run `./launch.sh` to install/update the dependencies and start the app in Google Chrome. If Chrome is already running, macOS reuses that app. Pass `--quick` to skip dependency installation and start immediately:
 
 ```sh
 ./launch.sh
