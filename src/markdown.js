@@ -17,13 +17,13 @@
  *   {{nowtime}}    -> current time only, e.g. "2:30 PM" (useful when
  *                     combining a fixed/picked date with a live time)
  *
- * Everything is centered horizontally per line and the whole block
- * of content is centered vertically as a group, then nudged by the
- * xOffset/yOffset fine-tune sliders — same positioning model as
- * before, just driven by parsed markdown instead of fixed fields.
+ * Text wraps at word boundaries to fit the available width. Everything
+ * is centered horizontally per line and the whole block of content is
+ * centered vertically as a group, then nudged by the xOffset/yOffset
+ * fine-tune sliders.
  */
 
-const FONT_SIZES = { h1: 32, h2: 22, body: 16 };
+const FONT_SIZES = { h1: 32, h2: 22, body: 18 };
 const LINE_HEIGHT_RATIO = 1.3;
 const BLANK_LINE_GAP = 10;
 
@@ -38,6 +38,55 @@ function getMarkdownBlocks(markdown) {
       bold: line.type !== 'body',
       height: Math.round(fontSize * LINE_HEIGHT_RATIO),
     };
+  });
+}
+
+function wrapText(context, text, maxWidth) {
+  const lines = [];
+  let line = '';
+
+  const appendWord = (word) => {
+    if (context.measureText(word).width <= maxWidth) {
+      const candidate = line ? `${line} ${word}` : word;
+      if (context.measureText(candidate).width <= maxWidth) {
+        line = candidate;
+      } else {
+        lines.push(line);
+        line = word;
+      }
+      return;
+    }
+
+    if (line) {
+      lines.push(line);
+      line = '';
+    }
+
+    let segment = '';
+    for (const character of word) {
+      if (segment && context.measureText(segment + character).width > maxWidth) {
+        lines.push(segment);
+        segment = character;
+      } else {
+        segment += character;
+      }
+    }
+    line = segment;
+  };
+
+  for (const word of text.split(/\s+/)) {
+    if (word) appendWord(word);
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+function getLaidOutBlocks(markdown, context, maxWidth, fontFamily) {
+  return getMarkdownBlocks(markdown).map((block) => {
+    if (block.type === 'space') return { ...block, lines: [] };
+    context.font = `${block.bold ? 'bold ' : ''}${block.fontSize}px ${fontFamily}`;
+    const lines = wrapText(context, block.text, maxWidth);
+    return { ...block, lines, height: block.height * lines.length };
   });
 }
 
@@ -75,9 +124,18 @@ export function parseMarkdownLines(markdown) {
   });
 }
 
-/** Returns the vertical space required to render all markdown lines. */
-export function getMarkdownContentHeight(markdown) {
-  return getMarkdownBlocks(markdown).reduce((sum, block) => sum + block.height, 0);
+/** Returns the vertical space required to render markdown, optionally wrapping to a width. */
+export function getMarkdownContentHeight(markdown, boxWidth, fontFamily = 'sans-serif') {
+  if (boxWidth === undefined) {
+    return getMarkdownBlocks(markdown).reduce((sum, block) => sum + block.height, 0);
+  }
+  const canvas = document.createElement('canvas');
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Could not create a canvas context to measure markdown.');
+  return getLaidOutBlocks(markdown, context, boxWidth - 20, fontFamily).reduce(
+    (sum, block) => sum + block.height,
+    0
+  );
 }
 
 /** Returns the horizontal space required by the widest rendered markdown line. */
@@ -105,11 +163,13 @@ export function getMarkdownContentWidth(markdown) {
 export function renderMarkdownContent(ctx, markdown, boxWidth, boxHeight, options = {}) {
   const xOffset = options.xOffset ?? 0;
   const yOffset = options.yOffset ?? 0;
+  const fontFamily = options.fontFamily ?? 'sans-serif';
 
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, boxWidth, boxHeight);
 
-  const blocks = getMarkdownBlocks(markdown);
+  const maxTextWidth = boxWidth - 20;
+  const blocks = getLaidOutBlocks(markdown, ctx, maxTextWidth, fontFamily);
 
   const totalHeight = blocks.reduce((sum, b) => sum + b.height, 0);
   let y = (boxHeight - totalHeight) / 2 - yOffset;
@@ -119,15 +179,16 @@ export function renderMarkdownContent(ctx, markdown, boxWidth, boxHeight, option
   ctx.textBaseline = 'middle';
 
   const centerX = boxWidth / 2 + xOffset;
-  const maxTextWidth = boxWidth - 20;
-
   for (const block of blocks) {
     if (block.type === 'space') {
       y += block.height;
       continue;
     }
-    ctx.font = `${block.bold ? 'bold ' : ''}${block.fontSize}px sans-serif`;
-    ctx.fillText(block.text, centerX, y + block.height / 2, maxTextWidth);
-    y += block.height;
+    ctx.font = `${block.bold ? 'bold ' : ''}${block.fontSize}px ${fontFamily}`;
+    const lineHeight = Math.round(block.fontSize * LINE_HEIGHT_RATIO);
+    for (const line of block.lines) {
+      ctx.fillText(line, centerX, y + lineHeight / 2, maxTextWidth);
+      y += lineHeight;
+    }
   }
 }

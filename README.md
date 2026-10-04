@@ -27,6 +27,16 @@ Alternatively, run `./launch.sh` to install/update the dependencies and start th
 The **Rotated Text (15mm Continuous)** mode uses the same markdown formatting as Manual mode,
 rotated 90° along the tape. Its print length is calculated from the widest rendered text line.
 
+The **58mm Receipt** mode uses the Manual mode markdown editor and prints on continuous receipt
+paper at the printer's full 384-dot image width. The receipt length adjusts to the markdown
+content.
+
+The **Image (58mm Continuous)** mode accepts PNG, JPEG, WebP, and GIF images. Images are converted
+to dithered black and white, scaled to the printer's full 384-dot width with their aspect ratio
+preserved, then printed on continuous roll paper. Use the **Lighten image** slider to add
+brightness before dithering; increasing it reduces the amount of black ink in the print. The
+preview reflects the current setting.
+
 ## Attributions
 
 This web app uses the following libraries:

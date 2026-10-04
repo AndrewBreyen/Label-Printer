@@ -30,7 +30,7 @@ describe('generateTextCanvas', () => {
     expect(canvas.width).toBe(70);
     expect(canvas.height).toBe(120);
     expect(context.fillText).toHaveBeenNthCalledWith(1, 'Hi', 35, 45.5, 50);
-    expect(context.fillText).toHaveBeenNthCalledWith(2, 'There', 35, 80.5, 50);
+    expect(context.fillText).toHaveBeenNthCalledWith(2, 'There', 35, 81, 50);
   });
 
   test('increases the canvas width for wider text', () => {

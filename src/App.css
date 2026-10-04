@@ -62,6 +62,13 @@ h1 {
   width: 100%;
 }
 
+.image-darkness-scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #888;
+}
+
 .preview {
   display: flex;
   justify-content: center;

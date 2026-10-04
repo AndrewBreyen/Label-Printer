@@ -10,7 +10,7 @@ import { drawRulerTicks } from './rulerUtils';
 import { LABEL_TEMPLATES, DEFAULT_TEMPLATE_NAME } from './labelTemplates';
 import { useContentTemplates } from './contentTemplates';
 import { MARKDOWN_TEMPLATES } from './markdownTemplates';
-import { renderMarkdownContent } from './markdown';
+import { getMarkdownContentHeight, renderMarkdownContent } from './markdown';
 import {
   generateBarcodeCanvas,
   drawRotatedBarcode,
@@ -22,6 +22,7 @@ import {
   CONTINUOUS_PAPER_TYPE,
 } from './barcodeUtils';
 import { generateTextCanvas } from './textLabelUtils';
+import { ditherImageData } from './imageUtils';
 import './App.css';
 
 // Canvas width MUST equal REQUIRED_IMAGE_WIDTH (384px) — this is a
@@ -31,19 +32,22 @@ const LABEL_WIDTH = REQUIRED_IMAGE_WIDTH;
 function App() {
   const DEFAULT_MARKDOWN = '# Hello World';
   const [markdownContent, setMarkdownContent] = useState(DEFAULT_MARKDOWN);
+  const [mode, setMode] = useState('manual'); // 'manual' | 'templates' | 'prep' | 'receipt' | 'image' | 'barcode' | 'text'
   const [templateName, setTemplateName] = useState(DEFAULT_TEMPLATE_NAME);
   const template = LABEL_TEMPLATES[templateName];
-  const CONTENT_WIDTH = template.width;
-  const CONTENT_LEFT = LABEL_WIDTH - CONTENT_WIDTH;
-  const contentHeight = template.contentHeight; // visible content box — what the cropped preview shows
-  const feedHeight = template.feedHeight; // full print job height — the real feed distance to the next label
+  const isReceiptMode = mode === 'receipt';
+  const CONTENT_WIDTH = isReceiptMode ? LABEL_WIDTH : template.width;
+  const CONTENT_LEFT = isReceiptMode ? 0 : LABEL_WIDTH - CONTENT_WIDTH;
+  const contentHeight = isReceiptMode
+    ? getMarkdownContentHeight(markdownContent, CONTENT_WIDTH, 'monospace') + 32
+    : template.contentHeight; // visible content box — what the cropped preview shows
+  const feedHeight = isReceiptMode ? contentHeight : template.feedHeight;
   const [connected, setConnected] = useState(false);
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
 
   // Manual vs Templates vs Prep Label vs Barcode mode, and the saved
   // content presets used by Templates mode.
-  const [mode, setMode] = useState('manual'); // 'manual' | 'templates' | 'prep' | 'barcode' | 'text'
   const { templates: contentTemplates, saveTemplate, deleteTemplate } = useContentTemplates();
   const [selectedContentTemplate, setSelectedContentTemplate] = useState('');
   const [newTemplateName, setNewTemplateName] = useState('');
@@ -108,15 +112,88 @@ function App() {
   const [textValue, setTextValue] = useState('');
   const [textError, setTextError] = useState('');
   const [textLengthMm, setTextLengthMm] = useState(null);
+  const [imageFile, setImageFile] = useState(null);
+  const [imageHeight, setImageHeight] = useState(1);
+  const [imageLightenAmount, setImageLightenAmount] = useState(80);
+  const [imageLoaded, setImageLoaded] = useState(false);
+  const [imageError, setImageError] = useState('');
 
   const canvasRef = useRef(null); // full 384px-wide canvas — hidden, this is what actually gets sent to the printer
-  const previewCanvasRef = useRef(null); // cropped 260x220 canvas — what's actually shown on screen
+  const previewCanvasRef = useRef(null); // visible content preview — cropped for labels, full width for receipts
   const rulerCanvasRef = useRef(null);
   const barcodeCanvasRef = useRef(null); // full 384px-wide canvas for barcode mode — hidden, sent to the printer
   const barcodePreviewCanvasRef = useRef(null); // cropped 15mm-wide canvas — what's shown on screen for barcode mode
   const textCanvasRef = useRef(null);
   const textPreviewCanvasRef = useRef(null);
+  const imageCanvasRef = useRef(null);
+  const imagePreviewCanvasRef = useRef(null);
+  const imageRef = useRef(null);
   const [showRuler, setShowRuler] = useState(false);
+
+  useEffect(() => {
+    if (!imageFile) {
+      imageRef.current = null;
+      setImageHeight(1);
+      setImageLoaded(false);
+      setImageError('');
+      return undefined;
+    }
+
+    setImageLoaded(false);
+    const objectUrl = URL.createObjectURL(imageFile);
+    const image = new Image();
+    let cancelled = false;
+    image.onload = () => {
+      if (cancelled) return;
+      if (!image.naturalWidth || !image.naturalHeight) {
+        setImageError('The selected image has invalid dimensions.');
+        return;
+      }
+      imageRef.current = image;
+      setImageHeight(
+        Math.max(1, Math.round((image.naturalHeight * LABEL_WIDTH) / image.naturalWidth))
+      );
+      setImageLoaded(true);
+      setImageError('');
+    };
+    image.onerror = () => {
+      if (!cancelled) {
+        imageRef.current = null;
+        setImageLoaded(false);
+        setImageError('Could not load the selected image.');
+      }
+    };
+    image.src = objectUrl;
+
+    return () => {
+      cancelled = true;
+      imageRef.current = null;
+      URL.revokeObjectURL(objectUrl);
+    };
+  }, [imageFile]);
+
+  const drawImageLabel = useCallback(() => {
+    const image = imageRef.current;
+    const printCanvas = imageCanvasRef.current;
+    const previewCanvas = imagePreviewCanvasRef.current;
+    if (!image || !printCanvas || !previewCanvas) return;
+
+    for (const canvas of [printCanvas, previewCanvas]) {
+      canvas.width = LABEL_WIDTH;
+      canvas.height = imageHeight;
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('Could not create the image print canvas.');
+      context.fillStyle = '#ffffff';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0, LABEL_WIDTH, imageHeight);
+      const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+      context.putImageData(ditherImageData(imageData, imageLightenAmount), 0, 0);
+    }
+  }, [imageHeight, imageLightenAmount]);
+
+  useEffect(() => {
+    if (mode === 'image' && imageRef.current) drawImageLabel();
+  }, [mode, imageHeight, imageLoaded, drawImageLabel]);
 
   // Draws the label content (parsed from markdown) into the content
   // box, translated to sit at `contentLeft` within the given canvas
@@ -139,7 +216,13 @@ function App() {
 
       ctx.save();
       ctx.translate(contentLeft, 0);
-      renderMarkdownContent(ctx, markdownContent, CONTENT_WIDTH, contentBoxHeight);
+      renderMarkdownContent(
+        ctx,
+        markdownContent,
+        CONTENT_WIDTH,
+        contentBoxHeight,
+        isReceiptMode ? { fontFamily: 'monospace' } : undefined
+      );
 
       // Visual-only outline around the content box — light gray
       // (~#dddddd) stays above the printer's black/white threshold
@@ -155,7 +238,7 @@ function App() {
       }
       ctx.restore();
     },
-    [markdownContent, contentHeight, CONTENT_WIDTH]
+    [markdownContent, contentHeight, CONTENT_WIDTH, isReceiptMode]
   );
 
   // Full 384px-wide canvas — this is the real data sent to the
@@ -346,7 +429,10 @@ function App() {
       // {{now+Nd}} placeholders resolve to the actual print moment,
       // not whenever the content was last edited/selected.
       drawLabel();
-      await printLabel(canvasRef.current);
+      await printLabel(
+        canvasRef.current,
+        isReceiptMode ? { paperType: CONTINUOUS_PAPER_TYPE } : undefined
+      );
       setStatus('Label sent to printer.');
     } catch (err) {
       setStatus(`Print failed: ${err.message}`);
@@ -402,6 +488,28 @@ function App() {
     }
   };
 
+  const handlePrintImage = async () => {
+    if (!isPrinterConnected()) {
+      setStatus('Connect the printer first.');
+      return;
+    }
+    if (!imageRef.current) {
+      setStatus('Choose an image to print first.');
+      return;
+    }
+    setBusy(true);
+    setStatus('Printing...');
+    try {
+      drawImageLabel();
+      await printLabel(imageCanvasRef.current, { paperType: CONTINUOUS_PAPER_TYPE });
+      setStatus('Image sent to printer.');
+    } catch (err) {
+      setStatus(`Print failed: ${err.message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handlePrintRuler = async () => {
     if (!isPrinterConnected()) {
       setStatus('Connect the printer first.');
@@ -423,12 +531,19 @@ function App() {
   };
 
   const handlePrintClick =
-    mode === 'barcode' ? handlePrintBarcode : mode === 'text' ? handlePrintText : handlePrint;
+    mode === 'barcode'
+      ? handlePrintBarcode
+      : mode === 'text'
+        ? handlePrintText
+        : mode === 'image'
+          ? handlePrintImage
+          : handlePrint;
   const printDisabled =
     busy ||
     !connected ||
     (mode === 'barcode' && !barcodeValue.trim()) ||
-    (mode === 'text' && !textValue.trim());
+    (mode === 'text' && !textValue.trim()) ||
+    (mode === 'image' && !imageLoaded);
 
   return (
     <div className="app">
@@ -441,12 +556,14 @@ function App() {
             <option value="manual">Manual</option>
             <option value="templates">Templates</option>
             <option value="prep">Prep Label</option>
+            <option value="receipt">58mm Receipt</option>
+            <option value="image">Image (58mm Continuous)</option>
             <option value="barcode">Barcode (15mm Continuous)</option>
             <option value="text">Rotated Text (15mm Continuous)</option>
           </select>
         </label>
 
-        {mode === 'manual' && (
+        {(mode === 'manual' || isReceiptMode) && (
           <>
             <label className="field">
               <span>Label content (markdown)</span>
@@ -483,6 +600,59 @@ function App() {
                 </button>
               </div>
             </label>
+          </>
+        )}
+
+        {isReceiptMode && (
+          <p className="hint">
+            Prints on 58mm continuous receipt paper using the full 384-dot print width. Receipt
+            length adjusts to the markdown content.
+          </p>
+        )}
+
+        {mode === 'image' && (
+          <>
+            <label className="field">
+              <span>Image to print</span>
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                onChange={(event) => {
+                  setImageError('');
+                  setImageLoaded(false);
+                  setImageFile(event.target.files?.[0] || null);
+                }}
+              />
+            </label>
+            {imageError && <p className="status">{imageError}</p>}
+            {imageLoaded && (
+              <>
+                <label className="field">
+                  <span>Lighten image: {imageLightenAmount}</span>
+                  <input
+                    type="range"
+                    min="0"
+                    max="200"
+                    step="1"
+                    value={imageLightenAmount}
+                    onChange={(event) => setImageLightenAmount(Number(event.target.value))}
+                    aria-label="Lighten image"
+                  />
+                  <span className="image-darkness-scale">
+                    <span>Darker</span>
+                    <span>Lighter</span>
+                  </span>
+                  <span className="hint">
+                    Adds brightness before dithering; increase this if the print is too dark.
+                  </span>
+                </label>
+                <p className="hint">
+                  Converted to dithered black and white, printed at 58mm width with the original
+                  aspect ratio. Approximate length: {(imageHeight / BARCODE_PX_PER_MM).toFixed(1)}{' '}
+                  mm.
+                </p>
+              </>
+            )}
           </>
         )}
 
@@ -637,7 +807,7 @@ function App() {
           </>
         )}
 
-        {mode !== 'barcode' && mode !== 'text' && (
+        {mode !== 'barcode' && mode !== 'text' && mode !== 'image' && !isReceiptMode && (
           <label className="field">
             <span>Label size</span>
             <select value={templateName} onChange={(e) => setTemplateName(e.target.value)}>
@@ -652,7 +822,18 @@ function App() {
 
       </div>
 
-      {mode === 'barcode' ? (
+      {mode === 'image' ? (
+        imageLoaded ? (
+          <div className="preview">
+            <canvas
+              ref={imagePreviewCanvasRef}
+              width={LABEL_WIDTH}
+              height={imageHeight}
+              className="label-canvas"
+            />
+          </div>
+        ) : null
+      ) : mode === 'barcode' ? (
         <div className="preview">
           <canvas
             ref={barcodePreviewCanvasRef}
@@ -697,6 +878,7 @@ function App() {
           print length. */}
       <canvas ref={barcodeCanvasRef} width={LABEL_WIDTH} height={1} style={{ display: 'none' }} />
       <canvas ref={textCanvasRef} width={LABEL_WIDTH} height={1} style={{ display: 'none' }} />
+      <canvas ref={imageCanvasRef} width={LABEL_WIDTH} height={1} style={{ display: 'none' }} />
 
       {showRuler && (
         <div className="preview">

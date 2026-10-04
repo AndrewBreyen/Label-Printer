@@ -1,10 +1,9 @@
 /**
  * labelTemplates.js
  * -----------------
- * Config for the app's one supported label size: a 15mm-wide
- * continuous roll. There's no gap sensor to calibrate against on
- * continuous stock, so only the width is fixed — print length is calculated
- * from the content on each label.
+ * Config for the fixed-size label presets used by the label modes.
+ * Continuous barcode, text, and receipt modes size their canvases
+ * independently.
  *
  * CONTENT_WIDTH and PX_PER_MM are ESTIMATES based on a common
  * 203dpi thermal print head (203/25.4 ≈ 8px/mm). Verify against your
